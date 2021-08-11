@@ -273,8 +273,8 @@ using disk_monitor_actor = typed_actor_fwd<
 /// must interpret all operations that contain paths *relative* to its own
 /// root directory.
 using filesystem_actor = typed_actor_fwd<
-  // Writes a chunk of data to a given path. Creates intermediate directories
-  // if needed.
+  // Writes a chunk of data to a given path. Creates intermediate
+  // directories if needed.
   caf::replies_to<atom::write, std::filesystem::path, chunk_ptr>::with< //
     atom::ok>,
   // Reads a chunk of data from a given path and returns the chunk.
@@ -282,7 +282,9 @@ using filesystem_actor = typed_actor_fwd<
     chunk_ptr>,
   // Memory-maps a file.
   caf::replies_to<atom::mmap, std::filesystem::path>::with< //
-    chunk_ptr>>
+    chunk_ptr>,
+  // Get the filesystem root.
+  caf::replies_to<atom::get>::with<std::filesystem::path>>
   // Conform to the procotol of the STATUS CLIENT actor.
   ::extend_with<status_client_actor>::unwrap;
 

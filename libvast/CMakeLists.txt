@@ -59,6 +59,7 @@ VASTCompileFlatBuffers(
 # -- arrow ---------------------------------------------------------------------
 
 find_package(Arrow 0.17 REQUIRED CONFIG)
+find_package(Parquet 0.17 REQUIRED CONFIG)
 mark_as_advanced(
   BROTLI_COMMON_LIBRARY
   BROTLI_DEC_LIBRARY
@@ -71,6 +72,7 @@ string(
   APPEND
   VAST_FIND_DEPENDENCY_LIST
   "\nfind_package(Arrow REQUIRED CONFIG)"
+  "\nfind_package(Parquet REQUIRED CONFIG)"
   "\nmark_as_advanced("
   "\n BROTLI_COMMON_LIBRARY"
   "\n BROTLI_DEC_LIBRARY"
@@ -81,8 +83,10 @@ string(
   "\n ZSTD_LIB)")
 if (BUILD_SHARED_LIBS)
   set(ARROW_LIBRARY arrow_shared)
+  set(PARQUET_LIBRARY parquet_shared)
 else ()
   set(ARROW_LIBRARY arrow_static)
+  set(PARQUET_LIBRARY parquet_static)
 endif ()
 
 # -- libsystemd ----------------------------------------------------------------
@@ -424,7 +428,7 @@ target_link_libraries(libvast PUBLIC tsl::robin_map)
 # dependency_summary("robin-map" tsl::robin_map "Dependencies")
 
 # Link against Apache Arrow.
-target_link_libraries(libvast PUBLIC ${ARROW_LIBRARY})
+target_link_libraries(libvast PUBLIC ${ARROW_LIBRARY} ${PARQUET_LIBRARY})
 dependency_summary("Apache Arrow" ${ARROW_LIBRARY} "Dependencies")
 
 # Link against a backtrace library.

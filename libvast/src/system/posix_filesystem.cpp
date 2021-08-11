@@ -101,6 +101,9 @@ posix_filesystem(filesystem_actor::stateful_pointer<posix_filesystem_state> self
       }
       return result;
     },
+    [self](atom::get) {
+      return self->state.root;
+    },
   };
 }
 
