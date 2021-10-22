@@ -2,41 +2,27 @@ name: Feature Request
 description: Request a new feature
 title: "Feature Request Title"
 body:
-  - type: checkboxes
-    attributes:
-      label: Is there an existing issue for this?
-      description: Please search to see if an issue already exists for the requested feature.
-      options:
-        - label: I have searched the existing issues
-          required: true
   - type: textarea
     attributes:
-      label: Problem Statement
+      label: Use Case
       description: A concise description of the problem to be addressed by this feature request.
       render: markdown
     validations:
-      required: false
+      required: true
   - type: textarea
     attributes:
-      label: Suggested Solution (Optional)
+      label: Feature Description
       description: A concise description of your preferred solution.
-      placeholder: |
-        Things to address include:
-        1. Details of the technical implementation
-        2. Tradeoffs made in design decisions
-        3. Caveats and considerations for the future
       render: markdown
     validations:
-      required: false
+      required: true
   - type: textarea
     attributes:
       label: Anything else?
       description: |
-        Links? References? Anything that will give us more context about the
-        issue you are encountering!
+        Links? References? Anything that will give us more context about the issue you are encountering!
 
-        Tip: You can attach images, recordings, or log files by clicking this
-        area to highlight it and then dragging files in.
+        Tip: You can attach images, recordings, or log files by clicking this area to highlight it and then dragging files in.
       render: markdown
     validations:
       required: false
