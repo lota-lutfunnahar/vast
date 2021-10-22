@@ -1072,8 +1072,8 @@ index(index_actor::stateful_pointer<index_state> self,
     },
     // We can't pass this as spawn argument since the importer already
     // needs to know the index actor when spawning.
-    [self](atom::importer, idspace_distributor_actor importer) {
-      self->state.importer = std::move(importer);
+    [self](atom::importer, idspace_distributor_actor idspace_distributor) {
+      self->state.importer = std::move(idspace_distributor);
     },
     [self](atom::apply, transform_ptr transform,
            vast::uuid old_partition_id) -> caf::result<atom::done> {
