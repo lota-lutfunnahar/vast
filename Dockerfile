@@ -140,7 +140,7 @@ RUN apt-get update && \
     apt-get -y --no-install-recommends install \
       ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb && \
     apt-get update && \
-    apt-get -y --no-install-recommends install libarrow500 && \
+    apt-get -y --no-install-recommends install libarrow600 && \
     rm -rf /var/lib/apt/lists/*
 
 USER vast:vast
