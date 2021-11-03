@@ -10,6 +10,8 @@
 
 #include "vast/detail/endian.hpp"
 
+#include <cstdint>
+
 namespace vast::detail {
 
 /// Swaps the endianness of an unsigned integer.
