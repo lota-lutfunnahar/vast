@@ -14,10 +14,11 @@
 namespace vast {
 
 /// The default hash algorithm.
-using default_hash = xxh3_64;
+// using default_hash = xxh3_64;
+using default_hash = xxhash64;
 
 // To avoid performance regression, the default hash algorithm in VAST must
 // support both incremental and oneshot hashing.
-static_assert(oneshot_hash<default_hash> && incremental_hash<default_hash>);
+// static_assert(oneshot_hash<default_hash> && incremental_hash<default_hash>);
 
 } // namespace vast
