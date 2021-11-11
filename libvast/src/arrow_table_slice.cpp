@@ -21,9 +21,11 @@
 #include "vast/value_index.hpp"
 
 #include <arrow/api.h>
+#include <arrow/array/array_nested.h>
 #include <arrow/io/api.h>
 #include <arrow/ipc/api.h>
 
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -458,8 +460,19 @@ public:
     }
   }
 
+  static bool valid(const arrow::StructArray& arr, int64_t row) {
+    auto struct_length = arr.length();
+    for (const auto& field : arr.fields()) {
+      if (field->length() < struct_length || field->length() < row)
+        return false;
+    }
+    return true;
+  }
+
   void operator()(const arrow::StructArray& arr, const legacy_record_type& t) {
     if (arr.IsNull(row_))
+      return;
+    if (!valid(arr, row_))
       return;
     result_ = record_at(t, arr, row_);
   }
