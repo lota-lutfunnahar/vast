@@ -387,7 +387,7 @@ meta_index(meta_index_actor::stateful_pointer<meta_index_state> self) {
       return atom::ok_v;
     },
     [=](atom::candidates, const vast::expression& expression,
-        const vast::ids& ids) -> caf::result<std::vector<vast::uuid>> {
+        const vast::ids& ids) -> caf::result<meta_index_result> {
       VAST_TRACE_SCOPE("{} {} {}", *self, VAST_ARG(expression), VAST_ARG(ids));
       std::vector<vast::uuid> expression_candidates;
       std::vector<vast::uuid> ids_candidates;
@@ -420,7 +420,9 @@ meta_index(meta_index_actor::stateful_pointer<meta_index_state> self) {
         result = std::move(expression_candidates);
       else
         result = std::move(ids_candidates);
-      return result;
+      // FIXME: This is a pessimization; we need to analyze the query
+      // here to see whether it's probabilistic or exact.
+      return meta_index_result { meta_index_result::probabilistic, std::move(result) };
     },
     [=](atom::status, status_verbosity v) {
       record result;
