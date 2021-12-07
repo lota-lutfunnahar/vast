@@ -19,8 +19,10 @@
 #include "vast/table_slice_builder.hpp"
 #include "vast/type.hpp"
 
+#include <arrow/table.h>
 #include <arrow/util/config.h>
 #include <caf/none.hpp>
+#include <caf/settings.hpp>
 
 #if ARROW_VERSION_MAJOR < 5
 #  include <arrow/util/io_util.h>
@@ -36,13 +38,12 @@ writer::writer() {
   out_ = std::make_shared<::arrow::io::StdoutStream>();
 }
 
-writer::writer(const caf::settings&) {
+writer::writer(const caf::settings& options)
+  : feather_(get_or(options, "vast.export.arrow.feather", false)) {
   out_ = std::make_shared<::arrow::io::StdoutStream>();
 }
 
-writer::~writer() {
-  // nop
-}
+writer::~writer() = default;
 
 caf::error writer::write(const table_slice& slice) {
   if (out_ == nullptr)
@@ -52,10 +53,25 @@ caf::error writer::write(const table_slice& slice) {
   // Get the Record Batch and print it.
   auto batch = as_record_batch(slice);
   VAST_ASSERT(batch != nullptr);
-  if (auto status = current_batch_writer_->WriteRecordBatch(*batch);
-      !status.ok())
-    return caf::make_error(ec::unspecified, "failed to write record batch",
-                           status.ToString());
+
+  if (feather_) {
+    // need: const Table& table
+    const auto table = ::arrow::Table::FromRecordBatches(std::vector{batch});
+    if (table.ok()) {
+      if (auto status = ::arrow::ipc::feather::WriteTable(**table, out_.get());
+          !status.ok())
+        return caf::make_error(ec::unspecified, "failed to write record batch",
+                               status.ToString());
+    } else {
+      return caf::make_error(ec::logic_error, "failed to create arrow::Table",
+                             table.status().ToString());
+    }
+  } else {
+    if (auto status = current_batch_writer_->WriteRecordBatch(*batch);
+        !status.ok())
+      return caf::make_error(ec::unspecified, "failed to write record batch",
+                             status.ToString());
+  }
   return caf::none;
 }
 

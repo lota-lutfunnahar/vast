@@ -15,6 +15,7 @@
 #include "vast/type.hpp"
 
 #include <arrow/io/api.h>
+#include <arrow/ipc/feather.h>
 #include <arrow/ipc/writer.h>
 #include <caf/error.hpp>
 #include <caf/expected.hpp>
@@ -40,7 +41,7 @@ public:
 
   caf::error write(const table_slice& x) override;
 
-  const char* name() const override;
+  [[nodiscard]] const char* name() const override;
 
   void out(output_stream_ptr ptr) {
     out_ = std::move(ptr);
@@ -53,6 +54,7 @@ private:
   type current_layout_;
   table_slice_builder_ptr current_builder_;
   batch_writer_ptr current_batch_writer_;
+  bool feather_ = false;
 };
 
 } // namespace vast::format::arrow

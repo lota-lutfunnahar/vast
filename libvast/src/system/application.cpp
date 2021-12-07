@@ -131,7 +131,9 @@ auto make_export_command() {
                           opts("?vast.export.null"));
   export_->add_subcommand("arrow", "exports query results in Arrow format",
                           documentation::vast_export_arrow,
-                          opts("?vast.export.arrow"));
+                          opts("?vast.export.arrow")
+                            .add<bool>("feather", "use apache arrow feather "
+                                                  "output format"));
 
   for (const auto& plugin : plugins::get()) {
     if (const auto* writer = plugin.as<writer_plugin>()) {
