@@ -33,7 +33,7 @@ using namespace std::string_view_literals;
 namespace {
 
 template <class... Ts>
-auto make_slice(record_type layout, Ts&&... xs) {
+auto make_slice(const record_type& layout, Ts&&... xs) {
   auto builder = arrow_table_slice_builder::make(type{"stub", layout});
   auto ok = builder->add(std::forward<Ts>(xs)...);
   if (!ok)
@@ -188,6 +188,39 @@ TEST(single column - duration) {
   CHECK_VARIANT_EQUAL(slice.at(1, 0, t), h12);
   CHECK_VARIANT_EQUAL(slice.at(2, 0, t), std::nullopt);
   CHECK_ROUNDTRIP(slice);
+}
+
+// make sure we can still read slices using the "old" int64-based
+// data representation for duration columns
+TEST(single column - legacy duration) {
+  auto legacy_type = integer_type{};
+  auto h0 = duration{0};
+  auto s7 = std::chrono::nanoseconds(7s);
+  auto m23 = std::chrono::nanoseconds(23min);
+  auto h12 = std::chrono::nanoseconds(12h);
+
+  // as we can't actually create the old table slices after changing
+  // how durations are represented, fake it by building an integer-based
+  // column and then force a new schema over it.
+  auto old_slice
+    = make_single_column_slice(legacy_type, integer{h0.count()},
+                               integer{s7.count()}, integer{h12.count()},
+                               integer{m23.count()}, caf::none);
+
+  auto record_batch = as_record_batch(old_slice);
+
+  auto new_duration_type = duration_type{};
+  auto new_duration_layout = record_type{{"foo", new_duration_type}};
+  auto new_slice = arrow_table_slice_builder::create(
+    record_batch, type{"stub", new_duration_layout});
+
+  REQUIRE_EQUAL(new_slice.rows(), 5u);
+  CHECK_VARIANT_EQUAL(new_slice.at(0, 0, new_duration_type), h0);
+  CHECK_VARIANT_EQUAL(new_slice.at(1, 0, new_duration_type), s7);
+  CHECK_VARIANT_EQUAL(new_slice.at(2, 0, new_duration_type), h12);
+  CHECK_VARIANT_EQUAL(new_slice.at(3, 0, new_duration_type), m23);
+  CHECK_VARIANT_EQUAL(new_slice.at(4, 0, new_duration_type), std::nullopt);
+  CHECK_ROUNDTRIP(new_slice);
 }
 
 TEST(single column - address) {
