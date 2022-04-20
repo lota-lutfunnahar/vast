@@ -89,7 +89,8 @@ TEST(local store roundtrip) {
   run();
   // The local store expects a single stream source, so the data should be
   // flushed to disk after the source disconnected.
-  auto store = plugin->make_store(accountant, filesystem, as_bytes(header));
+  auto store
+    = plugin->make_store(accountant, filesystem, uuid, as_bytes(header));
   REQUIRE_NOERROR(store);
   run();
   auto ids = vast::make_ids({23});

@@ -277,7 +277,7 @@ public:
   /// @returns A new store actor.
   [[nodiscard]] virtual caf::expected<system::store_actor>
   make_store(system::accountant_actor accountant, system::filesystem_actor fs,
-             std::span<const std::byte> header) const = 0;
+             const vast::uuid& id, std::span<const std::byte> header) const = 0;
 };
 
 // -- query language plugin ---------------------------------------------------

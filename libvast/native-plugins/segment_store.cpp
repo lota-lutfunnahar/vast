@@ -73,8 +73,8 @@ struct active_store_state {
   /// Number of events in this store.
   size_t events = {};
 
-  /// The name for this type of CAF actor.
-  static constexpr const char* name = "active-local-store";
+  /// A readable name for this active store.
+  std::string name = {};
 };
 
 struct passive_store_state {
@@ -104,8 +104,8 @@ struct passive_store_state {
   /// The segment corresponding to this local store.
   caf::optional<vast::segment> segment = {};
 
-  /// The name for this type of CAF actor.
-  static constexpr const char* name = "passive-local-store";
+  /// A readable name for this active store.
+  std::string name = {};
 
 private:
   caf::result<atom::done> erase(const vast::ids&);
@@ -183,10 +183,12 @@ store_path_from_header(std::span<const std::byte> header) {
 system::store_actor::behavior_type passive_local_store(
   system::store_actor::stateful_pointer<passive_store_state> self,
   system::accountant_actor accountant, system::filesystem_actor fs,
-  const std::filesystem::path& path) {
+  const uuid& id, const std::filesystem::path& path) {
+  VAST_DEBUG("spawning passive-store-{}", id);
   self->state.accountant = std::move(accountant);
   self->state.fs = std::move(fs);
   self->state.path = path;
+  self->state.name = fmt::format("passive-store-{}", id);
   self->set_exit_handler([self](const caf::exit_msg&) {
     for (auto&& [expr, rp] : std::exchange(self->state.deferred_requests, {}))
       rp.deliver(caf::make_error(ec::lookup_error, "partition store shutting "
@@ -195,13 +197,14 @@ system::store_actor::behavior_type passive_local_store(
       rp.deliver(caf::make_error(ec::lookup_error, "partition store shutting "
                                                    "down"));
   });
-  VAST_DEBUG("{} loads passive store from path {}", *self, path);
-  self->request(self->state.fs, caf::infinite, atom::mmap_v, path)
+  VAST_DEBUG("{} loads passive store from path {}", *self, self->state.path);
+  self->request(self->state.fs, caf::infinite, atom::mmap_v, self->state.path)
     .then(
       [self](chunk_ptr chunk) {
         auto seg = segment::make(std::move(chunk));
         if (!seg) {
-          VAST_ERROR("couldnt create segment from chunk: {}", seg.error());
+          VAST_ERROR("{} couldn't create segment from chunk: {}", *self,
+                     seg.error());
           self->send_exit(self, caf::exit_reason::unhandled_exception);
           return;
         }
@@ -292,7 +295,7 @@ system::store_actor::behavior_type passive_local_store(
       }
       auto new_segment = segment::copy_without(*self->state.segment, xs);
       if (!new_segment) {
-        VAST_ERROR("could not remove ids from segment {}: {}",
+        VAST_ERROR("{} could not remove ids from segment {}: {}", *self,
                    self->state.segment->id(), render(new_segment.error()));
         return new_segment.error();
       }
@@ -311,12 +314,12 @@ system::store_actor::behavior_type passive_local_store(
             // partition flatbuffer with the changed store header as well.
             std::filesystem::rename(new_path, old_path, ec);
             if (ec)
-              VAST_ERROR("failed to erase old data {}", seg.id());
+              VAST_ERROR("{} failed to erase old data {}", *self, seg.id());
             self->state.segment = std::move(seg);
             rp.deliver(intersection_size);
           },
-          [rp](caf::error& err) mutable {
-            VAST_ERROR("failed to flush archive {}", to_string(err));
+          [self, rp](caf::error& err) mutable {
+            VAST_ERROR("{} failed to flush archive {}", *self, to_string(err));
             rp.deliver(err);
           });
       return rp;
@@ -327,17 +330,17 @@ system::store_actor::behavior_type passive_local_store(
 local_store_actor::behavior_type
 active_local_store(local_store_actor::stateful_pointer<active_store_state> self,
                    system::accountant_actor accountant,
-                   system::filesystem_actor fs,
-                   const std::filesystem::path& path) {
-  VAST_DEBUG("spawning active local store");
+                   system::filesystem_actor fs, const uuid& id) {
+  VAST_DEBUG("spawning active-store-{}", id);
   self->state.self = self;
   self->state.accountant = std::move(accountant);
   self->state.fs = std::move(fs);
-  self->state.path = path;
+  self->state.path = store_path_for_partition(id);
+  self->state.name = fmt::format("active-store-{}", id);
   self->state.builder
     = std::make_unique<segment_builder>(defaults::system::max_segment_size);
   self->set_exit_handler([self](const caf::exit_msg&) {
-    VAST_DEBUG("active local store exits");
+    VAST_DEBUG("{} exits", *self);
     // TODO: We should save the finished segment in the state, so we can
     //       answer queries that arrive after the stream has ended.
     self->quit();
@@ -414,7 +417,7 @@ active_local_store(local_store_actor::stateful_pointer<active_store_state> self,
     // internal handlers
     [self](atom::internal, atom::persist) {
       self->state.segment = self->state.builder->finish();
-      VAST_DEBUG("persisting segment {}", self->state.segment->id());
+      VAST_DEBUG("{} persists segment {}", *self, self->state.segment->id());
       self
         ->request(self->state.fs, caf::infinite, atom::write_v,
                   self->state.path, self->state.segment->chunk())
@@ -423,7 +426,7 @@ active_local_store(local_store_actor::stateful_pointer<active_store_state> self,
             self->state.self = nullptr;
           },
           [self](caf::error& err) {
-            VAST_ERROR("failed to flush archive {}", to_string(err));
+            VAST_ERROR("{} failed to flush archive {}", *self, to_string(err));
             self->state.self = nullptr;
           });
       self->state.fs = nullptr;
@@ -454,17 +457,17 @@ public:
     std::string path_str = path.string();
     auto header = chunk::make(std::move(path_str));
     auto builder
-      = fs->home_system().spawn(active_local_store, accountant, fs, path);
+      = fs->home_system().spawn(active_local_store, accountant, fs, id);
     return builder_and_header{
       static_cast<system::store_builder_actor&&>(builder), std::move(header)};
   }
 
   [[nodiscard]] caf::expected<system::store_actor>
   make_store(system::accountant_actor accountant, system::filesystem_actor fs,
-             std::span<const std::byte> header) const override {
+             const uuid& id, std::span<const std::byte> header) const override {
     auto path = store_path_from_header(header);
     return fs->home_system().spawn<caf::lazy_init>(passive_local_store,
-                                                   accountant, fs, path);
+                                                   accountant, fs, id, path);
   }
 };
 
