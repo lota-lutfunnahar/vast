@@ -555,7 +555,7 @@ void index_state::schedule_lookups() {
       VAST_TRACE("{} did not find a partition to query", *self);
       return;
     }
-    VAST_TRACE("{} schedules partition {} for {}", *self, next->partition,
+    VAST_DEBUG("{} schedules partition {} for {}", *self, next->partition,
                next->queries);
     // 2. Acquire the actor for the selected partition, potentially materializing
     //    it from its persisted state.
@@ -620,7 +620,7 @@ void index_state::schedule_lookups() {
                   it->second.query)
         .then(
           [this, handle_completion, qid, pid = next->partition](uint64_t n) {
-            VAST_TRACE("{} received {} results for query {} from partition {}",
+            VAST_DEBUG("{} received {} results for query {} from partition {}",
                        *self, n, qid, pid);
             handle_completion();
           },
