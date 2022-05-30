@@ -29,7 +29,9 @@
 #include "vast/table_slice.hpp"
 #include "vast/time.hpp"
 
+#include <caf/abstract_actor.hpp>
 #include <caf/binary_serializer.hpp>
+#include <caf/detail/set_thread_name.hpp>
 
 #include <type_traits>
 
@@ -379,7 +381,13 @@ catalog(catalog_actor::stateful_pointer<catalog_state> self,
   self->state.self = self;
   self->state.accountant = std::move(accountant);
   self->send(self->state.accountant, atom::announce_v, self->name());
+  if (self->getf(caf::abstract_actor::is_detached_flag))
+    self->send(self, atom::start_v);
   return {
+    [self](atom::start) {
+      VAST_DEBUG("{} sets its thread name to vast.catalog", *self);
+      caf::detail::set_thread_name("vast.catalog");
+    },
     [=](
       atom::merge,
       std::shared_ptr<std::map<uuid, partition_synopsis_ptr>>& ps) -> atom::ok {

@@ -212,6 +212,8 @@ using partition_creation_listener_actor = typed_actor_fwd<
 
 /// The CATALOG actor interface.
 using catalog_actor = typed_actor_fwd<
+  // Sets the thread name.
+  caf::reacts_to<atom::start>,
   // Bulk import a set of partition synopses.
   caf::replies_to<
     atom::merge,
