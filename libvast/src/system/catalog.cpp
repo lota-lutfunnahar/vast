@@ -181,7 +181,10 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
         VAST_ASSERT(caf::holds_alternative<data>(x.rhs));
         const auto& rhs = caf::get<data>(x.rhs);
         result_type result;
+        auto time_deltas = std::vector<std::chrono::microseconds>{};
+        time_deltas.reserve(synopses.size());
         for (const auto& [part_id, part_syn] : synopses) {
+          const auto start_time = system::stopwatch::now();
           for (const auto& [field, syn] : part_syn->field_synopses_) {
             if (match(field)) {
               // We need to prune the type's metadata here by converting it to a
@@ -220,10 +223,20 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
               }
             }
           }
+          const auto time_delta
+            = std::chrono::duration_cast<std::chrono::microseconds>(
+              start_time - system::stopwatch::now());
+          time_deltas.push_back(time_delta);
+          VAST_TRACEPOINT(catalog_lookup_per_predicate_and_partition,
+                          time_delta.count());
         }
-        VAST_DEBUG(
-          "{} checked {} partitions for predicate {} and got {} results",
-          detail::pretty_type_name(this), synopses.size(), x, result.size());
+        VAST_DEBUG("{} checked {} partitions for predicate {} in {} and got {} "
+                   "results",
+                   detail::pretty_type_name(this), synopses.size(), x,
+                   data{std::chrono::duration_cast<duration>(
+                     std::reduce(time_deltas.begin(), time_deltas.end(),
+                                 std::chrono::microseconds{}, std::plus<>{}))},
+                   result.size());
         // Some calling paths require the result to be sorted.
         VAST_ASSERT(std::is_sorted(result.begin(), result.end()));
         return result;
