@@ -225,7 +225,7 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
           }
           const auto time_delta
             = std::chrono::duration_cast<std::chrono::microseconds>(
-              start_time - system::stopwatch::now());
+              system::stopwatch::now() - start_time);
           time_deltas.push_back(time_delta);
           VAST_TRACEPOINT(catalog_lookup_per_predicate_and_partition,
                           time_delta.count());
