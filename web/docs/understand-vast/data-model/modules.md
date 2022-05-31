@@ -3,6 +3,7 @@
 :::caution Text Missing
 Coming soon!
 :::
+
 ## Type Definition Rules
 
 All defined type names and aliases share one *global* identifier namespace.
