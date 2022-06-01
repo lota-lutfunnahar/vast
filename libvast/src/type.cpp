@@ -1147,6 +1147,354 @@ detail::generator<type> type::aliases() const noexcept {
   __builtin_unreachable();
 }
 
+detail::generator<offset>
+type::resolve(std::string_view extractor, const enum extraction extraction,
+              const concepts_map* const concepts) const noexcept {
+  return resolve(std::vector{extractor}, extraction, concepts);
+}
+
+detail::generator<offset>
+type::resolve(const std::vector<std::string>& extractors,
+              enum extraction extraction,
+              const concepts_map* concepts) const noexcept {
+  auto views = std::vector<std::string_view>{};
+  views.reserve(extractors.size());
+  for (const auto& extractor : extractors)
+    views.emplace_back(extractor);
+  return resolve(views, extraction, concepts);
+}
+
+detail::generator<offset>
+type::resolve(std::vector<std::string_view> extractors,
+              const enum extraction extraction,
+              const concepts_map* const concepts) const noexcept {
+  // Helper function for matching a field extractor exactly. Returns nullopt in
+  // case there is no match, or the remainder after the dot separator if there
+  // is a match.
+  const auto try_match_field_extractor
+    = [](std::string_view extractor,
+         std::string_view name) noexcept -> std::optional<std::string_view> {
+    if (extractor[0] == '*') {
+      if (extractor.size() == 1)
+        return std::string_view{};
+      if (extractor[1] == '.')
+        return extractor.substr(2);
+    }
+    const auto [extractor_mismatch, name_mismatch] = std::mismatch(
+      extractor.begin(), extractor.end(), name.begin(), name.end());
+    if (name_mismatch == name.end()) {
+      if (extractor_mismatch == extractor.end())
+        return std::string_view{};
+      if (*extractor_mismatch == '.')
+        return extractor.substr(extractor_mismatch + 1 - extractor.begin());
+    }
+    return std::nullopt;
+  };
+  // Helper function for splitting a string_view at the first dot.
+  const auto split_at_first_dot = [](std::string_view what) noexcept
+    -> std::pair<std::string_view, std::string_view> {
+    const auto dot = what.find('.');
+    if (dot == std::string_view::npos)
+      return {what, {}};
+    return {what.substr(0, dot), what.substr(dot + 1)};
+  };
+  const auto try_match_field_extractor_subsections_impl
+    = [&](std::string_view extractor,
+          std::string_view name) noexcept -> std::optional<std::string_view> {
+    auto extractor_head = std::string_view{};
+    auto name_head = std::string_view{};
+    do {
+      std::tie(extractor_head, extractor) = split_at_first_dot(extractor);
+      std::tie(name_head, name) = split_at_first_dot(name);
+      const auto remainder
+        = try_match_field_extractor(extractor_head, name_head);
+      if (!remainder || !remainder->empty())
+        return std::nullopt;
+      if (name.empty())
+        return extractor;
+    } while (!extractor.empty());
+    return std::nullopt;
+  };
+  // Helper function for matching a field extractor subsection by subsection.
+  // Returns all partially matched remaining extractors.
+  const auto try_match_field_extractor_subsections
+    = [&](std::string_view extractor,
+          std::string_view name) noexcept -> std::vector<std::string_view> {
+    auto result = std::vector<std::string_view>{};
+    do {
+      if (const auto remaining_extractor
+          = try_match_field_extractor_subsections_impl(extractor, name))
+        result.push_back(*remaining_extractor);
+      name = split_at_first_dot(name).second;
+    } while (!name.empty());
+    return result;
+  };
+  // Helper function for matching a type extractor exactly.
+  const auto match_type_extractor
+    = [&](std::string_view extractor,
+          std::string_view name_or_kind) noexcept -> bool {
+    VAST_ASSERT(!extractor.empty());
+    VAST_ASSERT(!name_or_kind.empty());
+    if (extractor[0] != ':')
+      return false;
+    const auto remaining_extractor = try_match_field_extractor_subsections_impl(
+      extractor.substr(1), name_or_kind);
+    return remaining_extractor && remaining_extractor->empty();
+  };
+  // Helper function for matching a type extractor exactly against a set of
+  // extractors.
+  const auto match_any_type_extractor
+    = [&](const std::vector<std::string_view>& extractors,
+          std::string_view name_or_kind) noexcept -> bool {
+    return std::any_of(extractors.begin(), extractors.end(),
+                       [&](std::string_view extractor) noexcept {
+                         return match_type_extractor(extractor, name_or_kind);
+                       });
+  };
+  // Resolve concepts if we have a concepts map.
+  if (concepts) {
+    // We keep an additional set of already resolved concepts to avoid recursing
+    // indefinitely if there's a loop in the concept definitions.
+    auto resolved_concepts = detail::stable_set<std::string_view>{};
+    auto resolved_extractors = std::vector<std::string_view>{};
+    auto try_resolve_concept // NOLINTNEXTLINE(misc-no-recursion)
+      = [&](auto&& try_resolve_concept,
+            std::string_view extractor) noexcept -> void {
+      const auto concept_ = concepts->find(extractor);
+      if (concept_ == concepts->end()) {
+        resolved_extractors.push_back(extractor);
+        return;
+      }
+      if (!resolved_concepts.insert(extractor).second)
+        return;
+      for (const auto& resolved_field : concept_->second.fields)
+        resolved_extractors.emplace_back(resolved_field);
+      for (const auto& resolved_concept : concept_->second.concepts)
+        try_resolve_concept(try_resolve_concept, resolved_concept);
+    };
+    for (const auto extractor : extractors)
+      try_resolve_concept(try_resolve_concept, extractor);
+    extractors = std::move(resolved_extractors);
+  }
+  // We assert in various places of the below code that the extractor or partial
+  // extractors are not empty, which is why we're returning early if that's the
+  // case. This is also always correct since both field and type names must not
+  // be empty.
+  {
+    std::sort(extractors.begin(), extractors.end());
+    const auto is_empty = [](std::string_view extractor) noexcept {
+      return extractor.empty();
+    };
+    const auto removed_if_empty
+      = std::remove_if(extractors.begin(), extractors.end(), is_empty);
+    const auto removed_if_duplicate
+      = std::unique(extractors.begin(), removed_if_empty);
+    extractors.erase(removed_if_duplicate, extractors.end());
+    if (extractors.empty())
+      co_return;
+  }
+  // This algorithm works by advancing the node to every nested FlatBuffers
+  // table's pointer. We start at the type we're resolving on first, and then
+  // iteratively look at the current node and decide what to do next. Every loop
+  // at the iteration only looks at one node at a time.
+  const auto* node = &table(transparent::no);
+  // A helper variable indicating that the current node is a match and should be
+  // returned if it turns out to be a leaf.
+  bool node_matches = false;
+  // The backtracking context required to be able to step out again. Whenever we
+  // encounter a record type node we add a layer of context, and whenever we go
+  // past the end of a record type's list of fields we return to the previous
+  // context. The cursor is maintained separately so we can yield it easily in
+  // case of a matched leaf.
+  struct context {
+    const fbs::Type* root = {};
+    std::vector<std::string_view> current_extractors = {};
+  };
+  auto contexts = std::vector<context>{};
+  auto next_extractors = extractors;
+  auto cursor = offset{};
+  // Helper functions for modifying the node and context with clear naems.
+  const auto advance = [&]() noexcept {
+    node_matches = false;
+    if (cursor.empty()) {
+      node = nullptr;
+    } else {
+      node = contexts.back().root;
+      cursor.back() += 1;
+      // FIXME: is this correct?
+      next_extractors = extraction == extraction::prefix
+                          ? std::vector<std::string_view>{}
+                          : extractors;
+    }
+  };
+  const auto step_in = [&]() noexcept {
+    VAST_ASSERT(extraction != extraction::flattened || contexts.empty());
+    node_matches = false;
+    cursor.push_back(0);
+    contexts.push_back({
+      .root = node,
+      .current_extractors = std::exchange(next_extractors, extractors),
+    });
+  };
+  const auto step_out = [&]() noexcept {
+    cursor.pop_back();
+    contexts.pop_back();
+  };
+  // Now that we have all the individual pieces assembled, let's actually look
+  // at all relevant nodes and yield any matches we see on our way. The loop
+  // determines the next node based on the current context and the current node.
+  while (node) {
+    switch (node->type_type()) {
+      // We cannot resolve none type nodes, so we just move on to the next node.
+      case fbs::type::Type::NONE: {
+        advance();
+        break;
+      }
+      // For leaf type nodes, i.e., nodes that have no inner type node, we check
+      // whether we match had a match based on a parent node or whether we match
+      // a type extractor for the type's kind, and return the current cursor if
+      // we have a match. We always advance the cursor to the next node.
+#define VAST_HANDLE_LEAF_TYPE(id, kind)                                        \
+  case fbs::type::Type::id##_type: {                                           \
+    if (node_matches || match_any_type_extractor(extractors, kind))            \
+      co_yield cursor;                                                         \
+    advance();                                                                 \
+    break;                                                                     \
+  }
+        VAST_HANDLE_LEAF_TYPE(bool, "bool")
+        VAST_HANDLE_LEAF_TYPE(integer, "int")
+        VAST_HANDLE_LEAF_TYPE(count, "count")
+        VAST_HANDLE_LEAF_TYPE(real, "real")
+        VAST_HANDLE_LEAF_TYPE(duration, "duration")
+        VAST_HANDLE_LEAF_TYPE(time, "time")
+        VAST_HANDLE_LEAF_TYPE(string, "string")
+        VAST_HANDLE_LEAF_TYPE(pattern, "pattern")
+        VAST_HANDLE_LEAF_TYPE(address, "addr")
+        VAST_HANDLE_LEAF_TYPE(subnet, "subnet")
+        VAST_HANDLE_LEAF_TYPE(enumeration, "enum")
+        VAST_HANDLE_LEAF_TYPE(list, "list")
+        VAST_HANDLE_LEAF_TYPE(map, "map")
+#undef VAST_HANDLE_LEAF_TYPE
+      // Our current node is a record type. This can mean one of three things:
+      // 1. We need to step in because we just arrived at a new nesting level.
+      // 2. We need to step out because we moved past the end of the current
+      //    nesting level.
+      // 3. We look at the current field and try to identify whether the field
+      //    name matches, and then move the node to the field's type if we have
+      //    a match.
+      case fbs::type::Type::record_type: {
+        // Option 1: We step in.
+        if (contexts.empty() || node != contexts.back().root) {
+          if (extraction == extraction::magic
+              || extraction == extraction::prefix) {
+            if (node_matches || match_any_type_extractor(extractors, "record"))
+              co_yield cursor;
+          }
+          step_in();
+        }
+        const auto& record_type = *node->type_as_record_type();
+        const auto* fields = record_type.fields();
+        VAST_ASSERT(fields);
+        // Option 2: We step out.
+        if (cursor.back() >= fields->size()) {
+          step_out();
+          advance();
+          break;
+        }
+        // Option 3: We look at the current field.
+        const auto* field = fields->Get(cursor.back());
+        VAST_ASSERT(field);
+        const auto* name = field->name();
+        VAST_ASSERT(name);
+        // For every extractor, try to strip the name as a prefix. If we have a
+        // full match we mark this node to be yielded if it turns out to be a
+        // leaf node. If we have a partial match, we add the remaining extractor
+        // to the list of extractors for the next iteration.
+        if (extraction == extraction::flattened) {
+          auto remaining_extractors = std::vector<std::string_view>{};
+          for (const auto extractor : contexts.back().current_extractors) {
+            for (const auto remaining_extractor :
+                 try_match_field_extractor_subsections(extractor,
+                                                       name->string_view())) {
+              if (remaining_extractor.empty()) {
+                node_matches = true;
+                break;
+              }
+              remaining_extractors.push_back(remaining_extractor);
+            }
+          }
+          if (!node_matches)
+            next_extractors.insert(
+              next_extractors.end(),
+              std::make_move_iterator(remaining_extractors.begin()),
+              std::make_move_iterator(remaining_extractors.end()));
+        } else {
+          for (const auto extractor : contexts.back().current_extractors) {
+            if (const auto remaining_extractor
+                = try_match_field_extractor(extractor, name->string_view())) {
+              if (remaining_extractor->empty())
+                node_matches = true;
+              else
+                next_extractors.push_back(*remaining_extractor);
+            }
+          }
+        }
+        // In the next iteration, take a closer look at the field's type.
+        node = field->type_nested_root();
+        break;
+      }
+      // Our current node is an enriched type. For the resolution process, only
+      // the type name is relevant. We try to match it as a type extractor, or
+      // strip it from field extractors that start with the type name. We always
+      // move to the nested type node without advancing the cursor.
+      case fbs::type::Type::enriched_type: {
+        const auto& enriched_type = *node->type_as_enriched_type();
+        // Move on to the nested type *without* adding another context layer.
+        node = enriched_type.type_nested_root();
+        const auto* name = enriched_type.name();
+        if (!name)
+          break;
+        for (const auto& extractor : extractors) {
+          // Check whether the extractor is a type extractor and matches the
+          // type name exactly.
+          if (match_type_extractor(extractor, name->string_view())) {
+            node_matches = true;
+            continue;
+          }
+          if (extraction == extraction::flattened)
+            continue;
+          // Check whether the extractor is a suffix of the type's name, and
+          // if it is, yield the cursor and exit. We unconditionally support
+          // matching subsections here.
+          auto remaining_extractors = std::vector<std::string_view>{};
+          for (const auto remaining_extractor :
+               try_match_field_extractor_subsections(extractor,
+                                                     name->string_view())) {
+            if (remaining_extractor.empty()) {
+              node_matches = true;
+              break;
+            }
+            if (remaining_extractors.empty()
+                || remaining_extractors.back() != remaining_extractor)
+              remaining_extractors.push_back(remaining_extractor);
+          }
+          if (!node_matches)
+            next_extractors.insert(
+              next_extractors.end(),
+              std::make_move_iterator(remaining_extractors.begin()),
+              std::make_move_iterator(remaining_extractors.end()));
+        }
+        break;
+      }
+    }
+  }
+  // Verify that we actually visited all nodes.
+  VAST_ASSERT(!node);
+  VAST_ASSERT(!node_matches);
+  VAST_ASSERT(cursor.empty());
+  VAST_ASSERT(contexts.empty());
+}
+
 bool is_container(const type& type) noexcept {
   const auto& root = type.table(type::transparent::yes);
   switch (root.type_type()) {

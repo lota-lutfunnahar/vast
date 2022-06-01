@@ -402,6 +402,232 @@ TEST(record_type name resolving) {
     (std::vector<offset>{{5}}));
 }
 
+TEST(extractor resolution) {
+  // Convenience macro for checking the results.
+  const auto check = [](const type& t, std::string_view extractor,
+                        const std::vector<offset>& expected_values_magic,
+                        const std::vector<offset>& expected_values_suffix,
+                        const std::vector<offset>& expected_values_prefix,
+                        const std::vector<offset>& expected_values_flattened,
+                        const concepts_map* concepts = nullptr) {
+    MESSAGE("checking extractor " << extractor);
+    const auto actual_values_magic = detail::collect(
+      t.resolve(extractor, type::extraction::magic, concepts));
+    CHECK_EQUAL(actual_values_magic, expected_values_magic);
+    const auto actual_values_suffix = detail::collect(
+      t.resolve(extractor, type::extraction::suffix, concepts));
+    CHECK_EQUAL(actual_values_suffix, expected_values_suffix);
+    const auto actual_values_prefix = detail::collect(
+      t.resolve(extractor, type::extraction::prefix, concepts));
+    CHECK_EQUAL(actual_values_prefix, expected_values_prefix);
+    const auto actual_values_flattened = detail::collect(
+      flatten(t).resolve(extractor, type::extraction::flattened, concepts));
+    CHECK_EQUAL(actual_values_flattened, expected_values_flattened);
+  };
+  {
+    const auto t = type{
+      "vast.foo",
+      record_type{
+        // [0] => 0
+        {"i", integer_type{}},
+        // [1]
+        {"r",
+         record_type{
+           // [1, 0] => 1
+           {"p", type{"port", count_type{}}},
+           // [1, 1] => 2
+           {"a", address_type{}},
+           // [1, 2] => 3
+           {"not_i", count_type{}},
+         }},
+        // [2] => 4
+        {"b", type{bool_type{}, {{"key"}}}},
+        // [3]
+        {"r2",
+         type{
+           "bar",
+           record_type{
+             // [3, 0] => 5
+             {"s", type{subnet_type{}, {{"key", "value"}}}},
+             // [3, 1]
+             {"r",
+              record_type{
+                // [3, 1, 0] => 6
+                {"a", address_type{}},
+                // [3, 1, 1] => 7
+                {"r", string_type{}},
+              }},
+           },
+         }},
+        // [4] => 8
+        {"*", integer_type{}},
+      },
+    };
+    MESSAGE("an empty extractor never yields results");
+    check(t, "", {}, {}, {}, {});
+    MESSAGE("a type name suffix yields the specified node");
+    check(t, "vast.foo", {{}}, {}, {{}}, {});
+    check(t, "foo", {{}}, {}, {{}}, {});
+    MESSAGE("field extractors yield the specified node");
+    check(t, "i", {{0}}, {{0}}, {{0}}, {{0}});
+    check(t, "r", {{1}, {3, 1}, {3, 1, 1}}, {{3, 1, 1}}, {{1}}, {{7}});
+    check(t, "r.p", {{1, 0}}, {{1, 0}}, {{1, 0}}, {{1}});
+    check(t, "r.a", {{1, 1}, {3, 1, 0}}, {{1, 1}, {3, 1, 0}}, {{1, 1}},
+          {{2}, {6}});
+    check(t, "r.r", {{3, 1, 1}}, {{3, 1, 1}}, {}, {{7}});
+    check(t, "r.not_i", {{1, 2}}, {{1, 2}}, {{1, 2}}, {{3}});
+    check(t, "b", {{2}}, {{2}}, {{2}}, {{4}});
+    check(t, "r2", {{3}}, {}, {{3}}, {});
+    check(t, "r2.s", {{3, 0}}, {{3, 0}}, {{3, 0}}, {{5}});
+    check(t, "r2.r", {{3, 1}}, {}, {{3, 1}}, {});
+    check(t, "r2.r.a", {{3, 1, 0}}, {{3, 1, 0}}, {{3, 1, 0}}, {{6}});
+    check(t, "r2.r.r", {{3, 1, 1}}, {{3, 1, 1}}, {{3, 1, 1}}, {{7}});
+    MESSAGE("qualified field extractors yield the specified node");
+    check(t, "foo.i", {{0}}, {{0}}, {{0}}, {});
+    check(t, "foo.r", {{1}}, {}, {{1}}, {});
+    check(t, "foo.r.p", {{1, 0}}, {{1, 0}}, {{1, 0}}, {});
+    check(t, "foo.r.a", {{1, 1}}, {{1, 1}}, {{1, 1}}, {});
+    check(t, "foo.r.r", {}, {}, {}, {});
+    check(t, "foo.r.not_i", {{1, 2}}, {{1, 2}}, {{1, 2}}, {});
+    check(t, "foo.b", {{2}}, {{2}}, {{2}}, {});
+    check(t, "foo.r2", {{3}}, {}, {{3}}, {});
+    check(t, "foo.r2.s", {{3, 0}}, {{3, 0}}, {{3, 0}}, {});
+    check(t, "foo.r2.r", {{3, 1}}, {}, {{3, 1}}, {});
+    check(t, "foo.r2.r.a", {{3, 1, 0}}, {{3, 1, 0}}, {{3, 1, 0}}, {});
+    MESSAGE("fully qualified field extractors yield the specified node");
+    check(t, "vast.foo.i", {{0}}, {{0}}, {{0}}, {});
+    check(t, "vast.foo.r", {{1}}, {}, {{1}}, {});
+    check(t, "vast.foo.r.p", {{1, 0}}, {{1, 0}}, {{1, 0}}, {});
+    check(t, "vast.foo.r.a", {{1, 1}}, {{1, 1}}, {{1, 1}}, {});
+    check(t, "vast.foo.r.r", {}, {}, {}, {});
+    check(t, "vast.foo.r.not_i", {{1, 2}}, {{1, 2}}, {{1, 2}}, {});
+    check(t, "vast.foo.b", {{2}}, {{2}}, {{2}}, {});
+    check(t, "vast.foo.r2", {{3}}, {}, {{3}}, {});
+    check(t, "vast.foo.r2.s", {{3, 0}}, {{3, 0}}, {{3, 0}}, {});
+    check(t, "vast.foo.r2.r", {{3, 1}}, {}, {{3, 1}}, {});
+    check(t, "vast.foo.r2.r.a", {{3, 1, 0}}, {{3, 1, 0}}, {{3, 1, 0}}, {});
+    MESSAGE("qualified field extractors can also start at a non-root node");
+    check(t, "bar.s", {{3, 0}}, {{3, 0}}, {{3, 0}}, {});
+    check(t, "bar.r", {{3, 1}}, {}, {{3, 1}}, {});
+    check(t, "bar.r.a", {{3, 1, 0}}, {{3, 1, 0}}, {{3, 1, 0}}, {});
+    MESSAGE("types in qualified field extractors can only occur at the start");
+    check(t, "r2.bar.r.a", {}, {}, {}, {});
+    check(t, "foo.r2.bar.r.a", {}, {}, {}, {});
+    check(t, "vast.foo.r2.bar.r.a", {}, {}, {}, {});
+    MESSAGE("extractors starting with a colon match type names");
+    check(t, ":count", {{1, 0}, {1, 2}}, {{1, 0}, {1, 2}}, {{1, 0}, {1, 2}},
+          {{1}, {3}});
+    check(t, ":record", {{}, {1}, {3}, {3, 1}}, {}, {{}, {1}, {3}, {3, 1}}, {});
+    check(t, ":port", {{1, 0}}, {{1, 0}}, {{1, 0}}, {{1}});
+    check(t, ":vast.foo", {{}}, {}, {{}}, {});
+    check(t, ":bar", {{3}}, {}, {{3}}, {});
+    {
+      const auto concepts = concepts_map{
+        {"test.foo",
+         concept_{
+           .description = "foo",
+           .fields = {"vast.foo.r2.s"},
+           .concepts = {"test.bar", "test.baz"},
+         }},
+        {"test.bar",
+         concept_{
+           .description = "bar",
+           .fields = {"vast.foo.i", "r.r"},
+           .concepts = {"test.infinite_loop"},
+         }},
+        {"test.infinite_loop",
+         concept_{
+           .description = "infinite_loop",
+           .fields = {},
+           .concepts = {"test.bar"},
+         }},
+      };
+      MESSAGE("extractors support concept resolution in case of exact matches");
+      check(t, "test.foo", {{0}, {3, 0}, {3, 1, 1}}, {{0}, {3, 0}, {3, 1, 1}},
+            {{0}, {3, 0}}, {{7}}, &concepts);
+      check(t, "foo", {{}}, {}, {{}}, {}, &concepts);
+      check(t, "test.bar", {{0}, {3, 1, 1}}, {{0}, {3, 1, 1}}, {{0}}, {{7}},
+            &concepts);
+      check(t, "bar", {{3}}, {}, {{3}}, {}, &concepts);
+    }
+    {
+      const auto concepts = concepts_map{
+        {"vast.foo.r.p",
+         concept_{
+           .description = "foo.r.p",
+           .fields = {"r.a"},
+           .concepts = {},
+         }},
+      };
+      MESSAGE("concepts have precedence over field extractors");
+      check(t, "vast.foo.r.p", {{1, 1}, {3, 1, 0}}, {{1, 1}, {3, 1, 0}},
+            {{1, 1}}, {{2}, {6}}, &concepts);
+    }
+    {
+      const auto concepts = concepts_map{
+        {"test.foo",
+         concept_{
+           .description = "foo",
+           .fields = {"r.p", ":count"},
+           .concepts = {},
+         }},
+      };
+      MESSAGE("concepts can resolve to type extractors");
+      check(t, "test.foo", {{1, 0}, {1, 2}}, {{1, 0}, {1, 2}}, {{1, 0}, {1, 2}},
+            {{1}, {3}}, &concepts);
+    }
+    MESSAGE("field extractors support wildcards");
+    // clang-format off
+    check(t, "*",
+          {{}, {0}, {1}, {1, 0}, {1, 1}, {1, 2}, {2}, {3}, {3, 0}, {3, 1}, {3, 1, 0}, {3, 1, 1}, {4}},
+          {{0}, {1, 0}, {1, 1}, {1, 2}, {2}, {3, 0}, {3, 1, 0}, {3, 1, 1}, {4}},
+          {{}, {0}, {1}, {1, 0}, {2}, {3}, {4}},
+          {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}});
+    // clang-format on
+    check(t, "r.*", {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}},
+          {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}},
+          {{1, 0}, {1, 1}, {1, 2}}, {{1}, {2}, {3}, {6}, {7}});
+    check(t, "*.r.*", {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}},
+          {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}},
+          {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}}, {{6}, {7}});
+    check(t, "vast.foo.*.r.*", {{3, 1, 0}, {3, 1, 1}}, {{3, 1, 0}, {3, 1, 1}},
+          {{3, 1, 0}, {3, 1, 1}}, {});
+    check(t, "*.*.r.*", {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}},
+          {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}},
+          {{1, 0}, {1, 1}, {1, 2}, {3, 1, 0}, {3, 1, 1}}, {});
+    check(t, "*.*.r", {{1}, {3, 1}, {3, 1, 1}}, {{3, 1, 1}},
+          {{1}, {3, 1}, {3, 1, 1}}, {{7}});
+    check(t, "vast.*.i", {{0}}, {{0}}, {{0}}, {});
+    check(t, "vast.*.r", {{1}}, {}, {{1}}, {});
+    check(t, "vast.*.r.p", {{1, 0}}, {{1, 0}}, {{1, 0}}, {});
+    check(t, "vast.*.r.a", {{1, 1}}, {{1, 1}}, {{1, 1}}, {});
+    check(t, "vast.*.r.r", {}, {}, {}, {});
+    check(t, "vast.*.r.not_i", {{1, 2}}, {{1, 2}}, {{1, 2}}, {});
+    check(t, "vast.*.b", {{2}}, {{2}}, {{2}}, {});
+    check(t, "vast.*.r2", {{3}}, {}, {{3}}, {});
+    check(t, "vast.*.r2.s", {{3, 0}}, {{3, 0}}, {{3, 0}}, {});
+    check(t, "vast.*.r2.r", {{3, 1}}, {}, {{3, 1}}, {});
+    check(t, "vast.*.r2.r.a", {{3, 1, 0}}, {{3, 1, 0}}, {{3, 1, 0}}, {});
+    MESSAGE("type extractors also support wildcards");
+    check(t, ":vast.*", {{}}, {}, {{}}, {});
+    check(t, ":*.foo", {{}}, {}, {{}}, {});
+    // clang-format off
+    check(t, ":*",
+          {{}, {0}, {1}, {1, 0}, {1, 1}, {1, 2}, {2}, {3}, {3, 0}, {3, 1}, {3, 1, 0}, {3, 1, 1}, {4}},
+          {{0}, {1, 0}, {1, 1}, {1, 2}, {2}, {3, 0}, {3, 1, 0}, {3, 1, 1}, {4}},
+          {{}, {0}, {1}, {1, 0}, {1, 1}, {1, 2}, {2}, {3}, {3, 0}, {3, 1}, {3, 1, 0}, {3, 1, 1}, {4}},
+          {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}});
+    // clang-format on
+  }
+  {
+    const auto t = type{"port", count_type{}};
+    MESSAGE("type extractors also work on non-record types");
+    check(t, ":port", {{}}, {{}}, {{}}, {{}});
+    check(t, ":count", {{}}, {{}}, {{}}, {{}});
+    check(t, ":string", {}, {}, {}, {});
+  }
+}
+
 TEST(record_type flat index computation) {
   auto x = record_type{
     {"x",
