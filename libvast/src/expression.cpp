@@ -8,36 +8,28 @@
 
 #include "vast/expression.hpp"
 
+#include "vast/concept/convertible/to.hpp"
 #include "vast/concept/printable/to_string.hpp"
 #include "vast/concept/printable/vast/expression.hpp"
 #include "vast/detail/assert.hpp"
+#include "vast/detail/narrow.hpp"
 #include "vast/detail/overload.hpp"
 #include "vast/expression_visitors.hpp"
 #include "vast/logger.hpp"
+#include "vast/view.hpp"
+
+#include <arrow/compute/exec/expression.h>
 
 namespace vast {
 
-// -- meta_extractor -----------------------------------------------------------
+// -- selector -----------------------------------------------------------
 
-bool operator==(const meta_extractor& x, const meta_extractor& y) {
+bool operator==(const selector& x, const selector& y) {
   return x.kind == y.kind;
 }
 
-bool operator<(const meta_extractor& x, const meta_extractor& y) {
+bool operator<(const selector& x, const selector& y) {
   return x.kind < y.kind;
-}
-
-// -- field_extractor ----------------------------------------------------------
-
-field_extractor::field_extractor(std::string f) : field{std::move(f)} {
-}
-
-bool operator==(const field_extractor& x, const field_extractor& y) {
-  return x.field == y.field;
-}
-
-bool operator<(const field_extractor& x, const field_extractor& y) {
-  return x.field < y.field;
 }
 
 // -- type_extractor -----------------------------------------------------------
@@ -299,6 +291,93 @@ resolve(const expression& expr, const type& t) {
   if (resolve_impl(result, expr, t, o))
     return result;
   return {};
+}
+
+caf::error
+convert(const expression& vast_expr, arrow::compute::Expression& arrow_expr) {
+  using arrow::compute::Expression;
+  auto f = detail::overload{
+    [](caf::none_t) -> caf::expected<Expression> {
+      return ec::unspecified;
+    },
+    [](const conjunction& xs) -> caf::expected<Expression> {
+      // FIXME: factor this for connectives
+      std::vector<Expression> exprs;
+      exprs.reserve(xs.size());
+      for (const auto& x : xs) {
+        if (auto expr = to<Expression>(x))
+          exprs.push_back(std::move(*expr));
+        else
+          return expr.error();
+      }
+      return arrow::compute::and_(exprs);
+    },
+    [](const disjunction& xs) -> caf::expected<Expression> {
+      // FIXME: factor this for connectives
+      std::vector<Expression> exprs;
+      exprs.reserve(xs.size());
+      for (const auto& x : xs) {
+        if (auto expr = to<Expression>(x))
+          exprs.push_back(std::move(*expr));
+        else
+          return expr.error();
+      }
+      return arrow::compute::or_(exprs);
+    },
+    [](const negation& x) -> caf::expected<Expression> {
+      if (auto expr = to<Expression>(x))
+        return arrow::compute::not_(*expr);
+      else
+        return expr.error();
+    },
+    [](const predicate& x) -> caf::expected<Expression> {
+      // Pre-condition: we only have a meta extractor or offset.
+      // Shortcut: ignore meta extractors (selectors) because we'd only have
+      // to consider #import_time.
+
+      // (1) Convert LHS
+
+      const auto* extractor = caf::get_if<data_extractor>(&x.lhs);
+      if (!extractor)
+        return ec::unimplemented;
+      const auto& c = caf::get<count_type>(extractor->type);
+      const auto& layout = caf::get<record_type>(extractor->type);
+      auto off = layout.resolve_flat_index(extractor->column);
+      // Factor into detail function, maybe.
+      auto make_path = [](const offset& index) noexcept {
+        auto intermediate = std::vector<int>{};
+        intermediate.reserve(index.size());
+        for (auto x : index)
+          intermediate.push_back(detail::narrow_cast<int>(x));
+        return arrow::FieldPath{std::move(intermediate)};
+      };
+      auto lhs = arrow::compute::field_ref(make_path(off));
+      // (2) Convert RHS
+
+      // TODO
+
+      // auto rhs_view = caf::get_if<data_view>(&x.rhs);
+      // auto lhs_type = layout.field(off).type;
+      auto rhs_type = type::infer(caf::get<data>(x.rhs));
+      // if (auto rhs_type = type::infer(caf::get<data>(x.rhs))) {
+      //   auto rhs = to_arrow_scalar(rhs_type, *rhs_view);
+      // return create_op(lhs, x.op, rhs);
+      // if (rhs_type != null)
+      //   <TYPE, OP, TYPE> -> COMPUTE_FUNCTION
+      // else
+      //   check whether values are NULL
+
+      return ec::unimplemented;
+      // }
+    },
+  };
+  auto result = caf::visit(f, vast_expr);
+  fmt::print(stderr, "tp;convert '{}', result is '{}'\n", vast_expr,
+             result->ToString());
+  if (!result)
+    return result.error();
+  arrow_expr = std::move(*result);
+  return caf::none;
 }
 
 } // namespace vast

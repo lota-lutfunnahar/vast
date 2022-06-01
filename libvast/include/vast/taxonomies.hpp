@@ -11,7 +11,6 @@
 #include "vast/fwd.hpp"
 
 #include "vast/detail/stable_map.hpp"
-#include "vast/type_set.hpp"
 
 #include <caf/meta/type_name.hpp>
 #include <fmt/format.h>
@@ -45,14 +44,7 @@ struct concept_ {
              c.concepts);
   }
 
-  inline static const record_type& layout() noexcept {
-    static const auto result = record_type{
-      {"description", string_type{}},
-      {"fields", list_type{string_type{}}},
-      {"concepts", list_type{string_type{}}},
-    };
-    return result;
-  }
+  static const record_type& layout() noexcept;
 };
 
 /// Maps concept names to their definitions.
@@ -79,13 +71,7 @@ struct model {
     return f(caf::meta::type_name("model"), m.description, m.definition);
   }
 
-  inline static const record_type& layout() noexcept {
-    static const auto result = record_type{
-      {"description", string_type{}},
-      {"definition", list_type{string_type{}}},
-    };
-    return result;
-  }
+  static const record_type& layout() noexcept;
 };
 
 /// Maps model names to their definitions.
@@ -119,15 +105,15 @@ std::vector<std::string>
 resolve_concepts(const concepts_map& concepts,
                  std::vector<std::string> fields_or_concepts);
 
-/// Substitutes concept and model identifiers in field extractors with
-/// replacement expressions containing only concrete field names.
+/// Substitutes concept and model identifiers in extractors with replacement
+/// expressions containing only concrete field names.
 /// @param t The set of taxonomies to apply.
 /// @param e The original expression.
 /// @returns The sustitute expression.
 caf::expected<expression> resolve(const taxonomies& t, const expression& e);
 
-/// Substitutes concept and model identifiers in field extractors with
-/// replacement expressions containing only concrete field names.
+/// Substitutes concept and model identifiers in extractors with replacement
+/// expressions containing only concrete field names.
 /// @param t The set of taxonomies to apply.
 /// @param e The original expression.
 /// @param seen The set of all types in the database.
