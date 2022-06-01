@@ -46,10 +46,10 @@ expression to_expr(T&& x) {
 struct fixture {
   fixture() {
     // expr0 := !(x.y.z <= 42 && #foo == T)
-    auto p0 = predicate{field_extractor{"x.y.z"},
-                        relational_operator::less_equal, data{integer{42}}};
-    auto p1 = predicate{meta_extractor{meta_extractor::field},
-                        relational_operator::equal, data{true}};
+    auto p0 = predicate{extractor{"x.y.z"}, relational_operator::less_equal,
+                        data{integer{42}}};
+    auto p1 = predicate{selector{selector::field}, relational_operator::equal,
+                        data{true}};
     auto conj = conjunction{p0, p1};
     expr0 = negation{conj};
     // expr0 || :real > 4.2
@@ -74,12 +74,12 @@ TEST(construction) {
   REQUIRE(c->size() == 2);
   auto p0 = caf::get_if<predicate>(&c->at(0));
   REQUIRE(p0);
-  CHECK_EQUAL(get<field_extractor>(p0->lhs).field, "x.y.z");
+  CHECK_EQUAL(get<extractor>(p0->lhs).value, "x.y.z");
   CHECK_EQUAL(p0->op, relational_operator::less_equal);
   CHECK_EQUAL(get<data>(p0->rhs), integer{42});
   auto p1 = caf::get_if<predicate>(&c->at(1));
   REQUIRE(p1);
-  CHECK_EQUAL(get<meta_extractor>(p1->lhs).kind, meta_extractor::field);
+  CHECK_EQUAL(get<selector>(p1->lhs).kind, selector::field);
   CHECK_EQUAL(p1->op, relational_operator::equal);
   CHECK(get<data>(p1->rhs) == data{true});
 }
@@ -198,7 +198,7 @@ TEST(extractors) {
     auto expr = unbox(to<expression>(":addr in 192.168.0.0/24"));
     auto resolved = caf::visit(type_resolver(r), expr);
     CHECK_EQUAL(resolved, normalized);
-    MESSAGE("field extractor - distribution");
+    MESSAGE("extractor - distribution");
     expr = unbox(to<expression>("host in 192.168.0.0/24"));
     resolved = unbox(caf::visit(type_resolver(r), expr));
     CHECK_EQUAL(resolved, normalized);
@@ -213,7 +213,7 @@ TEST(extractors) {
     auto expr = unbox(to<expression>(":addr !in 192.168.0.0/24"));
     auto resolved = caf::visit(type_resolver(r), expr);
     CHECK_EQUAL(resolved, normalized);
-    MESSAGE("field extractor - distribution with negation");
+    MESSAGE("extractor - distribution with negation");
     expr = unbox(to<expression>("host !in 192.168.0.0/24"));
     resolved = unbox(caf::visit(type_resolver(r), expr));
     CHECK_EQUAL(resolved, normalized);
@@ -301,11 +301,11 @@ TEST(matcher) {
   }};
   CHECK(match(":count == 42 || :real < 4.2", r));
   CHECK(match(":bool == T && :real < 4.2", r));
-  MESSAGE("field extractors");
+  MESSAGE("extractors");
   CHECK(match("x < 4.2 || (y == T && z in 10.0.0.0/8)", r));
   CHECK(match("x < 4.2 && (y == F || :bool == F)", r));
   CHECK(!match("x < 4.2 && a == T", r));
-  MESSAGE("attribute extractors");
+  MESSAGE("meta extractors");
   CHECK(!match("#type == \"foo\"", r));
   r = type{"foo", r};
   CHECK(match("#type == \"foo\"", r));

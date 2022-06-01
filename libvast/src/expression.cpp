@@ -17,27 +17,14 @@
 
 namespace vast {
 
-// -- meta_extractor -----------------------------------------------------------
+// -- selector -----------------------------------------------------------
 
-bool operator==(const meta_extractor& x, const meta_extractor& y) {
+bool operator==(const selector& x, const selector& y) {
   return x.kind == y.kind;
 }
 
-bool operator<(const meta_extractor& x, const meta_extractor& y) {
+bool operator<(const selector& x, const selector& y) {
   return x.kind < y.kind;
-}
-
-// -- field_extractor ----------------------------------------------------------
-
-field_extractor::field_extractor(std::string f) : field{std::move(f)} {
-}
-
-bool operator==(const field_extractor& x, const field_extractor& y) {
-  return x.field == y.field;
-}
-
-bool operator<(const field_extractor& x, const field_extractor& y) {
-  return x.field < y.field;
 }
 
 // -- type_extractor -----------------------------------------------------------

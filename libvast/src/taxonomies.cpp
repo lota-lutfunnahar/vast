@@ -251,13 +251,12 @@ resolve_impl(const taxonomies& ts, const expression& e,
         conjunction unrestricted;
         auto abs_op = is_negated(op) ? negate(op) : op;
         auto insert_meta_field_predicate = [&] {
-          auto make_meta_field_predicate
-            = [&](relational_operator op, const vast::data&) {
-                return [&, op](std::string item) {
-                  return predicate{meta_extractor{meta_extractor::field}, op,
-                                   vast::data{item}};
-                };
-              };
+          auto make_meta_field_predicate = [&](relational_operator op,
+                                               const vast::data&) {
+            return [&, op](std::string item) {
+              return predicate{selector{selector::field}, op, vast::data{item}};
+            };
+          };
           unrestricted.emplace_back(
             resolve_concepts(*levels.top().first, relational_operator::equal,
                              caf::none, make_meta_field_predicate));
@@ -333,25 +332,25 @@ resolve_impl(const taxonomies& ts, const expression& e,
         return unrestricted;
       };
       if (auto data = caf::get_if<vast::data>(&pred.rhs)) {
-        if (auto fe = caf::get_if<field_extractor>(&pred.lhs)) {
-          return resolve_models(
-            fe->field, pred.op, *data,
-            [&](relational_operator op, const vast::data& o) {
-              return [&, op](const std::string& item) {
-                return predicate{field_extractor{item}, op, o};
-              };
-            });
+        if (auto fe = caf::get_if<extractor>(&pred.lhs)) {
+          return resolve_models(fe->value, pred.op, *data,
+                                [&](relational_operator op,
+                                    const vast::data& o) {
+                                  return [&, op](const std::string& item) {
+                                    return predicate{extractor{item}, op, o};
+                                  };
+                                });
         }
       }
       if (auto data = caf::get_if<vast::data>(&pred.lhs)) {
-        if (auto fe = caf::get_if<field_extractor>(&pred.rhs)) {
-          return resolve_models(
-            fe->field, pred.op, *data,
-            [&](relational_operator op, const vast::data& o) {
-              return [&, op](const std::string& item) {
-                return predicate{o, op, field_extractor{item}};
-              };
-            });
+        if (auto fe = caf::get_if<extractor>(&pred.rhs)) {
+          return resolve_models(fe->value, pred.op, *data,
+                                [&](relational_operator op,
+                                    const vast::data& o) {
+                                  return [&, op](const std::string& item) {
+                                    return predicate{o, op, extractor{item}};
+                                  };
+                                });
         }
       }
       return expression{pred};

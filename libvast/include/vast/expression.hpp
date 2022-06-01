@@ -34,44 +34,50 @@ namespace vast {
 class expression;
 
 /// Extracts meta data from an event.
-struct meta_extractor : detail::totally_ordered<meta_extractor> {
+struct selector : detail::totally_ordered<selector> {
   enum kind { type, field, import_time };
 
-  meta_extractor() = default;
+  selector() = default;
 
-  meta_extractor(kind k) : kind{k} {
+  selector(kind k) : kind{k} {
     // nop
   }
 
   kind kind;
 };
 
-bool operator==(const meta_extractor& x, const meta_extractor& y);
-bool operator<(const meta_extractor& x, const meta_extractor& y);
+bool operator==(const selector& x, const selector& y);
+bool operator<(const selector& x, const selector& y);
 
 template <class Inspector>
-auto inspect(Inspector& f, meta_extractor& x) {
-  return f(caf::meta::type_name("meta_extractor"), x.kind);
+auto inspect(Inspector& f, selector& x) {
+  return f(caf::meta::type_name("selector"), x.kind);
 }
 
 /// Extracts one or more values according to a given field.
-struct field_extractor : detail::totally_ordered<field_extractor> {
-  field_extractor(std::string k = {});
+struct extractor {
+  explicit extractor(std::string value) noexcept : value{std::move(value)} {
+    // nop
+  }
 
-  std::string field;
+  extractor() noexcept = default;
+  ~extractor() noexcept = default;
+  extractor(const extractor&) noexcept = default;
+  extractor(extractor&&) noexcept = default;
+  extractor& operator=(const extractor&) = default;
+  extractor& operator=(extractor&&) noexcept = default;
+
+  friend std::strong_ordering
+  operator<=>(const extractor& lhs, const extractor& rhs) noexcept = default;
+
+  template <class Inspector>
+  friend auto inspect(Inspector& f, extractor& x) ->
+    typename Inspector::result_type {
+    return f(caf::meta::type_name("extractor"), x.value);
+  }
+
+  std::string value = {};
 };
-
-/// @relates field_extractor
-bool operator==(const field_extractor& x, const field_extractor& y);
-
-/// @relates field_extractor
-bool operator<(const field_extractor& x, const field_extractor& y);
-
-/// @relates field_extractor
-template <class Inspector>
-auto inspect(Inspector& f, field_extractor& x) {
-  return f(caf::meta::type_name("field_extractor"), x.field);
-}
 
 /// Extracts one or more values according to a given type.
 struct type_extractor : detail::totally_ordered<type_extractor> {
@@ -93,8 +99,8 @@ auto inspect(Inspector& f, type_extractor& x) {
 }
 
 /// Extracts a specific data value from a type according to an offset. During
-/// AST resolution, the ::field_extractor generates multiple instantiations of
-/// this extractor for a given schema.
+/// AST resolution, the ::extractor generates multiple instantiations of this
+/// extractor for a given schema.
 struct data_extractor : detail::totally_ordered<data_extractor> {
   data_extractor() = default;
 
@@ -120,8 +126,8 @@ auto inspect(Inspector& f, data_extractor& x) {
 /// A predicate with two operands evaluated under a relational operator.
 struct predicate : detail::totally_ordered<predicate> {
   /// The operand of a predicate, which can be either LHS or RHS.
-  using operand = caf::variant<meta_extractor, field_extractor, type_extractor,
-                               data_extractor, data>;
+  using operand
+    = caf::variant<selector, extractor, type_extractor, data_extractor, data>;
 
   predicate() = default;
 
@@ -336,7 +342,7 @@ auto for_each_predicate(const expression& e, F&& f) {
 /// @returns The hoisted expression.
 expression hoist(expression expr);
 
-/// Removes predicates with meta extractors from the tree.
+/// Removes predicates with selectors from the tree.
 /// @param expr The expression to prune.
 /// @returns The pruned expression.
 expression prune_meta_predicates(expression expr);
@@ -397,16 +403,16 @@ struct sum_type_access<vast::expression>
 namespace std {
 
 template <>
-struct hash<vast::meta_extractor> {
-  size_t operator()(const vast::meta_extractor& x) const {
+struct hash<vast::selector> {
+  size_t operator()(const vast::selector& x) const {
     return vast::hash(x);
   }
 };
 
 template <>
-struct hash<vast::field_extractor> {
-  size_t operator()(const vast::field_extractor& x) const {
-    return vast::hash(x);
+struct hash<vast::extractor> {
+  size_t operator()(const vast::extractor& x) const {
+    return vast::hash(x.value);
   }
 };
 
@@ -475,14 +481,14 @@ struct formatter<vast::data_extractor> {
 };
 
 template <>
-struct formatter<vast::meta_extractor> {
+struct formatter<vast::selector> {
   template <typename ParseContext>
   constexpr auto parse(ParseContext& ctx) {
     return ctx.begin();
   }
 
   template <typename FormatContext>
-  auto format(const vast::meta_extractor& value, FormatContext& ctx) {
+  auto format(const vast::selector& value, FormatContext& ctx) {
     auto out = ctx.out();
     vast::print(out, value);
     return out;

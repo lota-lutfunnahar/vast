@@ -208,9 +208,8 @@ TEST(empty partition roundtrip) {
              [=](const caf::error& err) {
                FAIL(err);
              });
-  auto expr = vast::expression{vast::predicate{vast::field_extractor{"x"},
-                                               vast::relational_operator::equal,
-                                               vast::data{0u}}};
+  auto expr = vast::expression{vast::predicate{
+    vast::extractor{"x"}, vast::relational_operator::equal, vast::data{0u}}};
   auto q = vast::query::make_extract(self, std::move(expr));
   auto rp2 = self->request(catalog, caf::infinite, vast::atom::candidates_v,
                            std::move(q));
@@ -321,20 +320,17 @@ TEST(full partition roundtrip) {
         CHECK_EQUAL(tally, expected_hits);
         return true;
       };
-  auto x_equals_zero = vast::expression{
-    vast::predicate{vast::field_extractor{"x"},
-                    vast::relational_operator::equal, vast::data{0u}}};
-  auto x_equals_one = vast::expression{
-    vast::predicate{vast::field_extractor{"x"},
-                    vast::relational_operator::equal, vast::data{1u}}};
-  auto foo_equals_one = vast::expression{
-    vast::predicate{vast::field_extractor{"foo"},
-                    vast::relational_operator::equal, vast::data{1u}}};
+  auto x_equals_zero = vast::expression{vast::predicate{
+    vast::extractor{"x"}, vast::relational_operator::equal, vast::data{0u}}};
+  auto x_equals_one = vast::expression{vast::predicate{
+    vast::extractor{"x"}, vast::relational_operator::equal, vast::data{1u}}};
+  auto foo_equals_one = vast::expression{vast::predicate{
+    vast::extractor{"foo"}, vast::relational_operator::equal, vast::data{1u}}};
   auto type_equals_y = vast::expression{
-    vast::predicate{vast::meta_extractor{vast::meta_extractor::type},
+    vast::predicate{vast::selector{vast::selector::type},
                     vast::relational_operator::equal, vast::data{"y"}}};
   auto type_equals_foo = vast::expression{
-    vast::predicate{vast::meta_extractor{vast::meta_extractor::type},
+    vast::predicate{vast::selector{vast::selector::type},
                     vast::relational_operator::equal, vast::data{"foo"}}};
   // For the query `x == 0`, we expect one result.
   test_expression(x_equals_zero, 1);

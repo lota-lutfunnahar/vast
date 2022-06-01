@@ -69,8 +69,8 @@ expression meta_pruner::operator()(const negation& n) const {
 }
 
 expression meta_pruner::operator()(const predicate& p) const {
-  if (caf::holds_alternative<meta_extractor>(p.lhs)
-      || caf::holds_alternative<meta_extractor>(p.rhs))
+  if (caf::holds_alternative<selector>(p.lhs)
+      || caf::holds_alternative<selector>(p.rhs))
     return expression{};
   return {p};
 }
@@ -293,16 +293,15 @@ caf::expected<void> validator::operator()(const predicate& p) {
   return caf::visit(*this, p.lhs, p.rhs);
 }
 
-caf::expected<void>
-validator::operator()(const meta_extractor& ex, const data& d) {
-  if (ex.kind == meta_extractor::type
+caf::expected<void> validator::operator()(const selector& ex, const data& d) {
+  if (ex.kind == selector::type
       && !(caf::holds_alternative<std::string>(d)
            || caf::holds_alternative<pattern>(d)))
     return caf::make_error(ec::syntax_error,
                            "type meta extractor requires string or pattern "
                            "operand",
                            "#type", op_, d);
-  if (ex.kind == meta_extractor::field) {
+  if (ex.kind == selector::field) {
     if (!caf::holds_alternative<std::string>(d)
         || op_ != relational_operator::equal)
       return caf::make_error(ec::syntax_error,
@@ -311,7 +310,7 @@ validator::operator()(const meta_extractor& ex, const data& d) {
                                          "#field {} {}",
                                          op_, d));
   }
-  if (ex.kind == meta_extractor::import_time) {
+  if (ex.kind == selector::import_time) {
     if (!caf::holds_alternative<time>(d)
         || !(op_ == relational_operator::less
              || op_ == relational_operator::less_equal
@@ -338,9 +337,9 @@ validator::operator()(const type_extractor& ex, const data& d) {
   return caf::no_error;
 }
 
-caf::expected<void> validator::operator()(const field_extractor&, const data&) {
-  // Validity of a field extractor requires a specific schema, which we don't
-  // have in this context.
+caf::expected<void> validator::operator()(const extractor&, const data&) {
+  // Validity of a extractor requires a specific schema, which we don't have in
+  // this context.
   return caf::no_error;
 }
 
@@ -405,7 +404,7 @@ caf::expected<expression> type_resolver::operator()(const predicate& p) {
 }
 
 caf::expected<expression>
-type_resolver::operator()(const meta_extractor& ex, const data& d) {
+type_resolver::operator()(const selector& ex, const data& d) {
   // We're leaving all attributes alone, because both #type and #field operate
   // at a different granularity.
   return predicate{ex, op_, d};
@@ -445,10 +444,10 @@ type_resolver::operator()(const data& d, const type_extractor& ex) {
 }
 
 caf::expected<expression>
-type_resolver::operator()(const field_extractor& ex, const data& d) {
+type_resolver::operator()(const extractor& ex, const data& d) {
   std::vector<expression> connective;
   // First, interpret the field as a suffix of a record field name.
-  auto suffixes = layout_.resolve_key_suffix(ex.field, layout_name_);
+  auto suffixes = layout_.resolve_key_suffix(ex.value, layout_name_);
   for (auto&& offset : suffixes) {
     const auto f = layout_.field(offset);
     if (!compatible(f.type, op_, d))
@@ -469,7 +468,7 @@ type_resolver::operator()(const field_extractor& ex, const data& d) {
 }
 
 caf::expected<expression>
-type_resolver::operator()(const data& d, const field_extractor& ex) {
+type_resolver::operator()(const data& d, const extractor& ex) {
   return (*this)(ex, d);
 }
 
@@ -504,8 +503,8 @@ bool matcher::operator()(const predicate& p) {
   return caf::visit(*this, p.lhs, p.rhs);
 }
 
-bool matcher::operator()(const meta_extractor& e, const data& d) {
-  if (e.kind == meta_extractor::type) {
+bool matcher::operator()(const selector& e, const data& d) {
+  if (e.kind == selector::type) {
     VAST_ASSERT(caf::holds_alternative<std::string>(d));
     // TODO: It's kind of non-sensical that evaluate operates on data rather
     // than data_view, forcing us to copy the type's name here.

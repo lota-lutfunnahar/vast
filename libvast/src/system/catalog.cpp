@@ -229,8 +229,8 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
         return result;
       };
       auto extract_expr = detail::overload{
-        [&](const meta_extractor& lhs, const data& d) -> result_type {
-          if (lhs.kind == meta_extractor::type) {
+        [&](const selector& lhs, const data& d) -> result_type {
+          if (lhs.kind == selector::type) {
             // We don't have to look into the synopses for type queries, just
             // at the layout names.
             result_type result;
@@ -248,7 +248,7 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
             }
             VAST_ASSERT(std::is_sorted(result.begin(), result.end()));
             return result;
-          } else if (lhs.kind == meta_extractor::import_time) {
+          } else if (lhs.kind == selector::import_time) {
             result_type result;
             for (const auto& [part_id, part_syn] : synopses) {
               VAST_ASSERT(part_syn->min_import_time
@@ -264,7 +264,7 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
             }
             VAST_ASSERT(std::is_sorted(result.begin(), result.end()));
             return result;
-          } else if (lhs.kind == meta_extractor::field) {
+          } else if (lhs.kind == selector::field) {
             // We don't have to look into the synopses for type queries, just
             // at the layout names.
             result_type result;
@@ -301,14 +301,14 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
                     detail::pretty_type_name(this), lhs.kind);
           return all_partitions();
         },
-        [&](const field_extractor& lhs, const data& d) -> result_type {
+        [&](const extractor& lhs, const data& d) -> result_type {
           auto pred = [&](const auto& field) {
             if (!compatible(field.type(), x.op, d))
               return false;
             VAST_ASSERT(!field.is_standalone_type());
             auto rt = record_type{{field.field_name(), field.type()}};
             for ([[maybe_unused]] const auto& offset :
-                 rt.resolve_key_suffix(lhs.field, field.layout_name()))
+                 rt.resolve_key_suffix(lhs.value, field.layout_name()))
               return true;
             return false;
           };

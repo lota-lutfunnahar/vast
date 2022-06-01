@@ -71,6 +71,6 @@ and `zeek.http.ts` (and many others).
 
 ## Concepts
 
-:::caution Text Missing
-Coming soon!
-:::
+import MissingDocumentation from '@site/presets/MissingDocumentation.md';
+
+<MissingDocumentation/>
