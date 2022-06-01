@@ -18,6 +18,7 @@
 #include "vast/operator.hpp"
 #include "vast/type.hpp"
 
+#include <arrow/compute/type_fwd.h>
 #include <caf/default_sum_type_access.hpp>
 #include <caf/detail/type_list.hpp>
 #include <caf/meta/type_name.hpp>
@@ -381,6 +382,13 @@ const expression* at(const expression& expr, const offset& o);
 ///          the new predicates.
 std::vector<std::pair<offset, predicate>>
 resolve(const expression& expr, const type& t);
+
+/// Translates a VAST expression into an Arrow expression.
+/// @param vast_expr The VAST expression.
+/// @param arrow_expr The Arrow expression.
+/// @returns An error code.
+caf::error
+convert(const expression& vast_expr, arrow::compute::Expression& arrow_expr);
 
 } // namespace vast
 
