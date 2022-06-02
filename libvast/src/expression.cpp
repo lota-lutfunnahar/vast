@@ -310,6 +310,8 @@ make_predicate(const type& lhs_type, arrow::compute::Expression lhs,
           return ec::unimplemented;
       }
     },
+    [&](const string_type&,
+        const pattern_type&) -> caf::expected<arrow::compute::Expression> {},
     [](const auto& lhs_type,
        const auto& rhs_type) -> caf::expected<arrow::compute::Expression> {
       fmt::print(stderr, "tp; unknown type pair {} <> {}\n", lhs_type,
@@ -332,40 +334,36 @@ convert(const expression& vast_expr, arrow::compute::Expression& arrow_expr,
       // FIXME: factor this for connectives
       std::vector<Expression> exprs;
       exprs.reserve(xs.size());
-      // for (const auto& x : xs) {
-      //   if (auto expr = to<Expression>(x, layout))
-      //     exprs.push_back(std::move(*expr));
-      //   else
-      //     return expr.error();
-      // }
+      for (const auto& x : xs) {
+        if (auto expr = to<Expression>(x, layout))
+          exprs.push_back(std::move(*expr));
+        else
+          return expr.error();
+      }
       return arrow::compute::and_(exprs);
     },
-    [](const disjunction& xs) -> caf::expected<Expression> {
+    [&](const disjunction& xs) -> caf::expected<Expression> {
       // FIXME: factor this for connectives
       std::vector<Expression> exprs;
       exprs.reserve(xs.size());
-      // for (const auto& x : xs) {
-      //   if (auto expr = to<Expression>(x))
-      //     exprs.push_back(std::move(*expr));
-      //   else
-      //     return expr.error();
-      // }
+      for (const auto& x : xs) {
+        if (auto expr = to<Expression>(x, layout))
+          exprs.push_back(std::move(*expr));
+        else
+          return expr.error();
+      }
       return arrow::compute::or_(exprs);
     },
-    [](const negation&) -> caf::expected<Expression> {
-      return ec::unimplemented;
-      // if (auto expr = to<Expression>(x))
-      //   return arrow::compute::not_(*expr);
-      // else
-      //   return expr.error();
+    [&](const negation& x) -> caf::expected<Expression> {
+      if (auto expr = to<Expression>(x, layout))
+        return arrow::compute::not_(*expr);
+      else
+        return expr.error();
     },
     [&](const predicate& x) -> caf::expected<Expression> {
       // Pre-condition: we only have a meta extractor or offset.
       // Shortcut: ignore meta extractors (selectors) because we'd only have
       // to consider #import_time.
-
-      // (1) Convert LHS
-
       const auto* extractor = caf::get_if<data_extractor>(&x.lhs);
       if (!extractor)
         return ec::unimplemented;

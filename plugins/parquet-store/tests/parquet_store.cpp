@@ -26,6 +26,9 @@
 #include <vast/test/memory_filesystem.hpp>
 #include <vast/test/test.hpp>
 
+#include <arrow/api.h>
+#include <arrow/compute/api.h>
+
 #include <chrono>
 
 namespace vast::plugins::parquet {
@@ -387,6 +390,27 @@ TEST(active parquet store status) {
       FAIL("failed status request");
     });
   run();
+}
+
+caf::expected<std::shared_ptr<arrow::RecordBatch>>
+execute(const std::shared_ptr<arrow::RecordBatch>& rb,
+        const arrow::compute::Expression& expr) {
+  return ec::unimplemented;
+}
+
+TEST(filter record batch) {
+  using namespace std::string_literals;
+  auto slice = make_slice(record_type{{"x", count_type{}}, {"y", count_type{}}},
+                          list{1_c, {}, 3_c, 4_c}, list{1_c, {}, 3_c, 4_c});
+  auto rb = to_record_batch(slice);
+  auto str = "b.y == 5"s;
+  auto rt_inner = record_type{{"x", integer_type{}}, {"y", count_type{}}};
+  auto rt_outer = record_type{{"a", string_type{}}, {"b", rt_inner}};
+  auto t = type{rt_outer};
+  auto expr = tailor(unbox(to<expression>(str)), t);
+  auto arrow_expr = arrow::compute::Expression{};
+  auto err = convert(*expr, arrow_expr, rt_outer);
+  execute(rb, arrow_expr);
 }
 
 FIXTURE_SCOPE_END()
