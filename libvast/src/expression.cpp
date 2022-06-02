@@ -16,6 +16,7 @@
 #include "vast/detail/overload.hpp"
 #include "vast/expression_visitors.hpp"
 #include "vast/logger.hpp"
+#include "vast/view.hpp"
 
 #include <arrow/compute/exec/expression.h>
 
@@ -292,52 +293,83 @@ resolve(const expression& expr, const type& t) {
   return {};
 }
 
-caf::error convert(const expression& vast_expr, arrow::compute::Expression& arrow_expr) {
+caf::expected<arrow::compute::Expression>
+make_predicate(const type& lhs_type, arrow::compute::Expression lhs,
+               const relational_operator& op, const type& rhs_type,
+               const data& value) {
+  namespace cp = arrow::compute;
+  auto f = detail::overload{
+    [&](const count_type&,
+        const count_type&) -> caf::expected<arrow::compute::Expression> {
+      switch (op) {
+        case relational_operator::equal: {
+          auto scalar = to_arrow_scalar(rhs_type, make_view(value));
+          return cp::equal(lhs, cp::literal(scalar));
+        }
+        default:
+          return ec::unimplemented;
+      }
+    },
+    [](const auto& lhs_type,
+       const auto& rhs_type) -> caf::expected<arrow::compute::Expression> {
+      fmt::print(stderr, "tp; unknown type pair {} <> {}\n", lhs_type,
+                 rhs_type);
+      return ec::unimplemented;
+    },
+  };
+  return caf::visit(f, lhs_type, rhs_type);
+}
+
+caf::error
+convert(const expression& vast_expr, arrow::compute::Expression& arrow_expr,
+        const record_type& layout) {
   using arrow::compute::Expression;
   auto f = detail::overload{
     [](caf::none_t) -> caf::expected<Expression> {
       return ec::unspecified;
     },
-    [](const conjunction& xs) -> caf::expected<Expression> {
+    [&](const conjunction& xs) -> caf::expected<Expression> {
       // FIXME: factor this for connectives
       std::vector<Expression> exprs;
       exprs.reserve(xs.size());
-      for (const auto& x : xs) {
-        if (auto expr = to<Expression>(x))
-          exprs.push_back(std::move(*expr));
-        else
-          return expr.error();
-      }
+      // for (const auto& x : xs) {
+      //   if (auto expr = to<Expression>(x, layout))
+      //     exprs.push_back(std::move(*expr));
+      //   else
+      //     return expr.error();
+      // }
       return arrow::compute::and_(exprs);
     },
     [](const disjunction& xs) -> caf::expected<Expression> {
       // FIXME: factor this for connectives
       std::vector<Expression> exprs;
       exprs.reserve(xs.size());
-      for (const auto& x : xs) {
-        if (auto expr = to<Expression>(x))
-          exprs.push_back(std::move(*expr));
-        else
-          return expr.error();
-      }
+      // for (const auto& x : xs) {
+      //   if (auto expr = to<Expression>(x))
+      //     exprs.push_back(std::move(*expr));
+      //   else
+      //     return expr.error();
+      // }
       return arrow::compute::or_(exprs);
     },
-    [](const negation& x) -> caf::expected<Expression> {
-      if (auto expr = to<Expression>(x))
-        return arrow::compute::not_(*expr);
-      else
-        return expr.error();
+    [](const negation&) -> caf::expected<Expression> {
+      return ec::unimplemented;
+      // if (auto expr = to<Expression>(x))
+      //   return arrow::compute::not_(*expr);
+      // else
+      //   return expr.error();
     },
-    [](const predicate& x) -> caf::expected<Expression> {
+    [&](const predicate& x) -> caf::expected<Expression> {
       // Pre-condition: we only have a meta extractor or offset.
-      // Shortcut: ignore meta extractors (selectors) because we'd only have to
-      // consider #import_time.
+      // Shortcut: ignore meta extractors (selectors) because we'd only have
+      // to consider #import_time.
 
       // (1) Convert LHS
-      auto extractor = caf::get_if<data_extractor>(&x.lhs);
+
+      const auto* extractor = caf::get_if<data_extractor>(&x.lhs);
       if (!extractor)
         return ec::unimplemented;
-      const auto& layout = caf::get<record_type>(extractor->type);
+      // const auto& layout = caf::get<record_type>(extractor->type);
       auto off = layout.resolve_flat_index(extractor->column);
       // Factor into detail function, maybe.
       auto make_path = [](const offset& index) noexcept {
@@ -348,24 +380,19 @@ caf::error convert(const expression& vast_expr, arrow::compute::Expression& arro
         return arrow::FieldPath{std::move(intermediate)};
       };
       auto lhs = arrow::compute::field_ref(make_path(off));
-      // (2) Convert RHS
-
-      // TODO
-      x.op;
-      x.rhs;
-
       auto lhs_type = layout.field(off).type;
-      auto rhs_type = type::infer(caf::get<data>(x.rhs));
-
-      if (rhs_type != null)
-        <TYPE, OP, TYPE> -> COMPUTE_FUNCTION
-      else
-        check whether values are NULL
-
-      return ec::unimplemented;
+      auto rhs = caf::get<data>(x.rhs);
+      auto rhs_type = type::infer(rhs);
+      // if (rhs_type != null)
+      //   <TYPE, OP, TYPE> -> COMPUTE_FUNCTION
+      // else
+      //   check whether values are NULL
+      return make_predicate(lhs_type, lhs, x.op, rhs_type, rhs);
     },
   };
   auto result = caf::visit(f, vast_expr);
+  fmt::print(stderr, "tp;convert '{}' -> '{}'\n", vast_expr,
+             result->ToString());
   if (!result)
     return result.error();
   arrow_expr = std::move(*result);

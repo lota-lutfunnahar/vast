@@ -394,7 +394,8 @@ resolve(const expression& expr, const type& t);
 /// @param arrow_expr The Arrow expression.
 /// @returns An error code.
 caf::error
-convert(const expression& vast_expr, arrow::compute::Expression& arrow_expr);
+convert(const expression& vast_expr, arrow::compute::Expression& arrow_expr,
+        const record_type& layout);
 
 } // namespace vast
 

@@ -25,6 +25,7 @@
 #include "vast/module.hpp"
 #include "vast/test/test.hpp"
 
+#include <arrow/compute/exec/expression.h>
 #include <caf/test/dsl.hpp>
 
 #include <string>
@@ -391,6 +392,21 @@ TEST(parse print roundtrip) {
     auto expr = to_expr(str);
     CHECK_EQUAL(str, to_string(expr));
   }
+}
+
+TEST(to_arrow entrypoint) {
+  // auto str
+  //   = "((x == 5 && :bool == T) || (foo ~ /foo/ && ! (x == 5 || #type ~
+  //   /bar/)))"s;
+  auto str = "b.y == 5"s;
+  auto rt_inner = record_type{{"x", integer_type{}}, {"y", count_type{}}};
+  auto rt_outer = record_type{{"a", string_type{}}, {"b", rt_inner}};
+  auto t = type{rt_outer};
+  auto expr = tailor(to_expr(str), t);
+  auto arrow_expr = arrow::compute::Expression{};
+  auto err = convert(*expr, arrow_expr, rt_outer);
+  // auto arrow_expr_2 = to<arrow::compute::Expression>(*expr, rt_outer);
+  CHECK_EQUAL(err, caf::none);
 }
 
 FIXTURE_SCOPE_END()
