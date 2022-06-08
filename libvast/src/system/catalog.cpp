@@ -8,8 +8,10 @@
 
 #include "vast/system/catalog.hpp"
 
+#include "vast/concept/printable/vast/json.hpp"
 #include "vast/data.hpp"
 #include "vast/detail/fill_status_map.hpp"
+#include "vast/detail/narrow.hpp"
 #include "vast/detail/overload.hpp"
 #include "vast/detail/set_operations.hpp"
 #include "vast/detail/stable_set.hpp"
@@ -34,6 +36,65 @@
 #include <caf/detail/set_thread_name.hpp>
 
 #include <type_traits>
+
+namespace vast::system {
+
+struct partition_lookup_stats {
+  uuid id = {};
+  size_t fields = 0;
+  size_t attempts = 0;
+  size_t lookups = 0;
+  duration full_time = {};
+  duration lookup_time = {};
+};
+
+bool convert(const partition_lookup_stats& src, record& dst) {
+  dst["part_id"] = fmt::to_string(src.id);
+  dst["fields"] = src.fields;
+  dst["attempts"] = src.attempts;
+  dst["lookups"] = src.lookups;
+  dst["full_time"] = src.full_time;
+  dst["lookup_time"] = src.lookup_time;
+  return true;
+}
+
+} // namespace vast::system
+
+namespace fmt {
+
+namespace {
+
+caf::expected<std::string> to_json_line(const vast::data& x) {
+  std::string str;
+  auto out = std::back_inserter(str);
+  if (vast::json_printer<vast::policy::oneline,
+                         vast::policy::human_readable_durations,
+                         vast::policy::include_nulls>{}
+        .print(out, x))
+    return str;
+  return caf::make_error(vast::ec::parse_error, "cannot convert to json");
+}
+
+} // namespace
+
+template <>
+struct formatter<vast::system::partition_lookup_stats> {
+  template <class ParseContext>
+  constexpr auto parse(ParseContext& ctx) -> decltype(ctx.begin()) {
+    return ctx.begin();
+  }
+
+  template <class FormatContext>
+  auto
+  format(const vast::system::partition_lookup_stats& value, FormatContext& ctx)
+    -> decltype(ctx.out()) {
+    vast::record out;
+    vast::system::convert(value, out);
+    return format_to(ctx.out(), "{}", *to_json_line(out));
+  }
+};
+
+} // namespace fmt
 
 namespace vast::system {
 
@@ -183,11 +244,16 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
         VAST_ASSERT(caf::holds_alternative<data>(x.rhs));
         const auto& rhs = caf::get<data>(x.rhs);
         result_type result;
-        auto time_deltas = std::vector<std::chrono::microseconds>{};
-        time_deltas.reserve(synopses.size());
+        auto statsv = std::vector<partition_lookup_stats>{};
+        statsv.reserve(synopses.size());
         for (const auto& [part_id, part_syn] : synopses) {
+          auto stat = partition_lookup_stats{
+            .id = part_id,
+            .fields = part_syn->field_synopses_.size(),
+          };
           const auto start_time = system::stopwatch::now();
           for (const auto& [field, syn] : part_syn->field_synopses_) {
+            stat.attempts++;
             if (match(field)) {
               // We need to prune the type's metadata here by converting it to a
               // concrete type and back, because the type synopses are looked up
@@ -199,7 +265,10 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
               // We rely on having a field -> nullptr mapping here for the
               // fields that don't have their own synopsis.
               if (syn) {
+                const auto start = system::stopwatch::now();
                 auto opt = syn->lookup(x.op, make_view(rhs));
+                stat.lookup_time += system::stopwatch::now() - start;
+                stat.lookups++;
                 if (!opt || *opt) {
                   VAST_TRACE("{} selects {} at predicate {}",
                              detail::pretty_type_name(this), part_id, x);
@@ -210,7 +279,10 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
                 // for the type in general.
               } else if (auto it = part_syn->type_synopses_.find(cleaned_type);
                          it != part_syn->type_synopses_.end() && it->second) {
+                const auto start = system::stopwatch::now();
                 auto opt = it->second->lookup(x.op, make_view(rhs));
+                stat.lookup_time += system::stopwatch::now() - start;
+                stat.lookups++;
                 if (!opt || *opt) {
                   VAST_TRACE("{} selects {} at predicate {}",
                              detail::pretty_type_name(this), part_id, x);
@@ -225,20 +297,31 @@ std::vector<uuid> catalog_state::lookup_impl(const expression& expr) const {
               }
             }
           }
-          const auto time_delta
-            = std::chrono::duration_cast<std::chrono::microseconds>(
-              system::stopwatch::now() - start_time);
-          time_deltas.push_back(time_delta);
+          stat.full_time = system::stopwatch::now() - start_time;
           VAST_TRACEPOINT(catalog_lookup_per_predicate_and_partition,
-                          time_delta.count());
+                          stat.fields, stat.attempts, stat.lookups,
+                          stat.full_time.count(), stat.lookup_time.count());
+          statsv.push_back(stat);
         }
-        VAST_DEBUG("{} checked {} partitions for predicate {} in {} and got {} "
-                   "results",
-                   detail::pretty_type_name(this), synopses.size(), x,
-                   data{std::chrono::duration_cast<duration>(
-                     std::reduce(time_deltas.begin(), time_deltas.end(),
-                                 std::chrono::microseconds{}, std::plus<>{}))},
-                   result.size());
+        std::sort(statsv.begin(), statsv.end(),
+                  [](const auto& lhs, const auto& rhs) {
+                    return (lhs.full_time < rhs.full_time);
+                  });
+        VAST_DEBUG("CATRACE size = {}", statsv.size());
+        if (statsv.size() < 22) {
+          for (size_t i = 0; i < statsv.size(); ++i)
+            VAST_DEBUG("CATRACE: predicate = {}; i = {}; median = {}", x, i,
+                       statsv[i]);
+        } else {
+          for (size_t i = 0; i < 10; ++i)
+            VAST_DEBUG("CATRACE: predicate = {}; i = {}; median = {}", x, i,
+                       statsv[i]);
+          VAST_DEBUG("CATRACE: predicate = {}; median = {}", x,
+                     statsv[detail::narrow_cast<int>(statsv.size() / 2)]);
+          for (size_t i = statsv.size() - 10; i < statsv.size(); ++i)
+            VAST_DEBUG("CATRACE: predicate = {}; i = {}; median = {}", x, i,
+                       statsv[i]);
+        }
         // Some calling paths require the result to be sorted.
         VAST_ASSERT(std::is_sorted(result.begin(), result.end()));
         return result;
