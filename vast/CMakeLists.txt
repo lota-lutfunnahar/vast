@@ -75,6 +75,24 @@ elseif (${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
     COMPONENT Runtime)
 endif ()
 
+# -- cli tests -----------------------------------------------------------------
+
+include(ProcessorCount)
+ProcessorCount(nproc)
+
+add_custom_target(
+  cli-test
+  COMMAND
+    ${CMAKE_COMMAND} -E env PATH="$<TARGET_FILE_DIR:vast::vast>:$ENV{PATH}" bats
+    "-T" "-j" "${nproc}" "${CMAKE_CURRENT_SOURCE_DIR}/cli-test/tests"
+  COMMENT "Executing CLI tests..."
+  USES_TERMINAL)
+
+install(
+  DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/cli-test/lib"
+  COMPONENT Development
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/vast/cli-test")
+
 # -- integration tests ---------------------------------------------------------
 
 # TODO: Hide integration test suite behind an option that is enabled by default.
