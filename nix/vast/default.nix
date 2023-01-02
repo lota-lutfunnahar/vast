@@ -26,9 +26,8 @@
     libunwind,
     xxHash,
     re2,
-    python3,
-    jq,
-    tcpdump,
+    vast-cli-test-deps,
+    vast-integration-test-deps,
     dpkg,
     restinio,
     versionLongOverride ? null,
@@ -42,15 +41,6 @@
     pkgsBuildHost,
   }: let
     inherit (stdenv.hostPlatform) isStatic;
-
-    py3 = python3.withPackages (ps:
-      with ps; [
-        coloredlogs
-        jsondiff
-        pyarrow
-        pyyaml
-        schema
-      ]);
 
     versionLongOverride' = lib.removePrefix "v" versionLongOverride;
     versionShortOverride' = lib.removePrefix "v" versionShortOverride;
@@ -176,6 +166,7 @@
         postBuild = lib.optionalString isStatic ''
           ${pkgsBuildHost.nukeReferences}/bin/nuke-refs bin/vast
         '';
+        allowedRequisites = lib.optionals isStatic ["out"];
 
         fixupPhase = lib.optionalString isStatic ''
           rm -rf $out/nix-support
@@ -187,9 +178,10 @@
         dontStrip = true;
 
         doInstallCheck = false;
-        installCheckInputs = [py3 jq tcpdump];
+        installCheckInputs = vast-cli-test-deps ++ vast-integration-test-deps;
         # TODO: Investigate why the disk monitor test fails in the build sandbox.
         installCheckPhase = ''
+          PATH="${placeholder "out"}/bin:$PATH" bats -T -j $NIX_BUILD_CORES ../vast/cli-test
           python ../vast/integration/integration.py \
             --app ${placeholder "out"}/bin/vast \
             --disable "Disk Monitor"
@@ -251,7 +243,6 @@
           install -m 644 -Dt $package package/*.deb package/*.tar.gz
           runHook postInstall
         '';
-        allowedRequisites = ["out"];
       });
   self = callPackage pkgFun ({self = self;} // args);
 in

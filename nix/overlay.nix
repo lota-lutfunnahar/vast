@@ -164,6 +164,12 @@ in {
       ps.matcher
       ps.netflow
     ]);
+  vast-cli-test-deps = let
+    bats = prev.bats.withLibraries (p: [
+      p.bats-support
+      p.bats-assert
+    ]);
+  in [ bats ];
   vast-integration-test-deps = let
     py3 = prev.python3.withPackages (ps:
       with ps; [
