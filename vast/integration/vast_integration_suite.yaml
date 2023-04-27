@@ -288,6 +288,7 @@ tests:
       - command: -N export ascii 'where duration > 6s'
       - command: -N export ascii 'where :timestamp >= 2011-08-15T03:48'
       - command: -N export ascii 'where :time >= 2011-08-15T03:48'
+
   Node suricata alert:
     tags: [node, import-export, suricata, eve, import-filter]
     steps:
@@ -297,6 +298,8 @@ tests:
       - command: '-N export csv "where #type == /suricata.*/"'
       - command: '-N export zeek "where #type == /suricata.alert/"'
       - command: -N export json --omit-nulls --omit-empty-records
+      - command: |
+          -N export json 'where #type != "suricata.dns" | flatten'
 
   Node suricata rrdata:
     tags: [node, import-export, suricata, eve]
@@ -305,6 +308,9 @@ tests:
         input: data/suricata/rrdata-eve.json
       - command: -N export ascii
       - command: -N export json
+        # TODO: We should test this with the `flatten` operator, but that is
+        # currently defunct for lists in records in lists.
+        # - command: -N export json 'flatten'
 
   Node argus csv:
     tags: [node, import-export, argus, csv]
