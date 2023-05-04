@@ -16,3 +16,6 @@
 [submodule "libvast/aux/simdjson"]
 	path = libvast/aux/simdjson
 	url = https://github.com/simdjson/simdjson
+[submodule "plugins/tui/aux/ftxui"]
+	path = plugins/tui/aux/ftxui
+	url = https://github.com/ArthurSonzogni/FTXUI.git
