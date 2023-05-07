@@ -200,7 +200,7 @@ tests:
     tags: [server, export]
     fixture: ServerTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       # We use the `null` export format since timeouts are always racy; we
       # cannot reliably make a 0 second timeout return 0 events.
@@ -212,7 +212,7 @@ tests:
     tags: [server, import-export, zeek]
     fixture: ServerTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: export ascii 'where resp_h == 192.168.1.104'
       # import some more to make sure accounting data is in the system.
@@ -235,10 +235,10 @@ tests:
     tags: [server, import-export, zeek]
     fixture: ServerTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: show schemas --expand
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/dns.log.gz
       - command: export ascii 'where resp_h == 192.168.1.104'
       - command: export ascii 'where zeek.conn.id.resp_h == 192.168.1.104'
@@ -249,7 +249,7 @@ tests:
     tags: [server, operator]
     fixture: ServerTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: export ascii 'where conn.duration <= 1.0s'
       - command: export json 'where duration >= 10.0s && duration < 15s'
@@ -263,7 +263,7 @@ tests:
     tags: [server, expression]
     fixture: ServerTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: export ascii 'where fe80::5074:1b53:7e7:ad4d || 169.254.225.22'
       - command: export ascii 'where "OrfTtuI5G4e" || fe80::5074:1b53:7e7:ad4d'
@@ -347,7 +347,7 @@ tests:
     tags: [concepts, models]
     fixture: ServerTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/pcap/zeek/conn.log.gz
       - command: import -b suricata
         input: data/pcap/suricata/eve.json.gz
@@ -463,7 +463,7 @@ tests:
     tags: [import-export, aging, zeek]
     fixture: AgingTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: export ascii 'where resp_h == 192.168.1.104'
       - command: version
@@ -478,7 +478,7 @@ tests:
     steps:
       - command: spawn source -r @./data/suricata/eve.json suricata
       - command: flush
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: count '#type == /suricata.*/'
   Example config file:
@@ -486,7 +486,7 @@ tests:
     fixture: ExampleConfigFileTester
     config-file: vast.yaml.example
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: export ascii 'where net.app !in ["dns", "ftp", "http", "ssl"]'
   # The `DiskMonitorTester` is set up to run every second and to delete all
@@ -497,7 +497,7 @@ tests:
     tags: [disk-quota]
     fixture: DiskMonitorTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
       - command: version
         transformation: sleep 4
@@ -634,9 +634,9 @@ tests:
     tags: [server, import-export, timeout]
     fixture: ServerTester
     steps:
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/conn.log.gz
-      - command: import -b zeek
+      - command: exec 'read zeek-tsv | import'
         input: data/zeek/dns.log.gz
       - command: export --timeout=0ms json
         expected_result: error
