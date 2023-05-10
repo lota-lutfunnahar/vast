@@ -268,7 +268,19 @@ caf::expected<expression> parse_search_id(const data& yaml) {
         } else if (*i == "gte") {
           op = relational_operator::greater_equal;
         } else if (*i == "contains") {
-          op = relational_operator::ni;
+          auto to_re = [](const data& d) -> caf::expected<data> {
+            auto f = detail::overload{[](const auto& x) -> caf::expected<data> {
+              auto str = detail::control_char_escape(to_string(x));
+              str = transform_sigma_string(str);
+              str = fmt::format(".*{}.*", str);
+              auto result = pattern::make(str, {.case_insensitive = true});
+              if (!result)
+                return std::move(result.error());
+              return std::move(*result);
+            }};
+            return caf::visit(f, d);
+          };
+          transforms.emplace_back(to_re);
         } else if (*i == "base64") {
           auto encode = [](const data& x) -> caf::expected<data> {
             if (const auto* str = caf::get_if<std::string>(&x))
@@ -403,8 +415,7 @@ caf::expected<expression> parse_search_id(const data& yaml) {
         // Convert strings to case-insensitive patterns.
         if (auto str = caf::get_if<std::string>(&value))
           if (auto pat = make_pattern(*str))
-            return predicate{extractor, relational_operator::equal,
-                             data{std::move(*pat)}};
+            return predicate{extractor, op, data{std::move(*pat)}};
         // The modifier 'base64offset' is unique in that it creates
         // multiple values represented as list. If followed by 'contains', then
         // we have substring search on each value; otherwise we can use equality
