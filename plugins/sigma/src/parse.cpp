@@ -181,9 +181,10 @@ struct detection_parser : parser_base<detection_parser> {
   search_id_symbol_table search_id;
 };
 
-/// Transforms a string that may contain Sigma glob wildcards into a string with
-/// respective regular expression metacharacters.
-std::string transform_sigma_string(std::string_view str) {
+/// Transforms a string that may contain Sigma glob wildcards into a pattern
+/// with respective regular expression metacharacters. Sigma patterns are always
+/// case-insensitive.
+caf::expected<pattern> transform_sigma_string(std::string_view str) {
   // The following invariants apply according to the Sigma spec:
   // - All values are treated as case-insensitive strings
   // - You can use wildcard characters '*' and '?' in strings
@@ -212,14 +213,6 @@ std::string transform_sigma_string(std::string_view str) {
       } else if (w == '?') {
         // Escaped wildcard
         rx += '?';
-      } else if (w == '\\') {
-        // Double backslash (\\). We include at least one backslash.
-        rx += '\\';
-        // If no wildcard follows \\, we have a literal double backslash. If a
-        // wildcard follows, e.g., \\* or \\?, then we have a single
-        // backslash plus wildcard.
-        if (f == l)
-          rx += '\\';
       } else {
         // Do nothing by default;
         rx += '\\';
@@ -233,13 +226,6 @@ std::string transform_sigma_string(std::string_view str) {
       rx += c;
     }
   };
-  return rx;
-}
-
-/// Make a pattern out of a Sigma string. The generated patterns are
-/// case-insensitive to reflect Sigma's string case-insensitivity.
-caf::expected<pattern> make_pattern(std::string_view str) {
-  auto rx = transform_sigma_string(str);
   return pattern::make(std::move(rx), {.case_insensitive = true});
 }
 
@@ -271,9 +257,7 @@ caf::expected<expression> parse_search_id(const data& yaml) {
           auto to_re = [](const data& d) -> caf::expected<data> {
             auto f = detail::overload{[](const auto& x) -> caf::expected<data> {
               auto str = detail::control_char_escape(to_string(x));
-              str = transform_sigma_string(str);
-              str = fmt::format(".*{}.*", str);
-              auto result = pattern::make(str, {.case_insensitive = true});
+              auto result = transform_sigma_string(fmt::format("*{}*", str));
               if (!result)
                 return std::move(result.error());
               return std::move(*result);
@@ -337,9 +321,7 @@ caf::expected<expression> parse_search_id(const data& yaml) {
           auto to_re = [](const data& d) -> caf::expected<data> {
             auto f = detail::overload{[](const auto& x) -> caf::expected<data> {
               auto str = detail::control_char_escape(to_string(x));
-              str = transform_sigma_string(str);
-              str = fmt::format("^{}.*", str);
-              auto result = pattern::make(str, {.case_insensitive = true});
+              auto result = transform_sigma_string(fmt::format("^{}*", str));
               if (!result)
                 return std::move(result.error());
               return std::move(*result);
@@ -352,9 +334,7 @@ caf::expected<expression> parse_search_id(const data& yaml) {
           auto to_re = [](const data& d) -> caf::expected<data> {
             auto f = detail::overload{[](const auto& x) -> caf::expected<data> {
               auto str = detail::control_char_escape(to_string(x));
-              str = transform_sigma_string(str);
-              str = fmt::format(".*{}$", str);
-              auto result = pattern::make(str, {.case_insensitive = true});
+              auto result = transform_sigma_string(fmt::format("*{}$", str));
               if (!result)
                 return std::move(result.error());
               return std::move(*result);
@@ -368,13 +348,12 @@ caf::expected<expression> parse_search_id(const data& yaml) {
             auto f = detail::overload{
               [](const auto& x) -> caf::expected<data> {
                 auto str = to_string(x);
-                auto transformed = transform_sigma_string(str);
-                if (str == transformed) {
-                  return str;
-                }
-                auto result = pattern::make(transformed);
+                auto result = transform_sigma_string(str);
                 if (!result)
                   return std::move(result.error());
+                if (str == result->string()) {
+                  return str;
+                }
                 return std::move(*result);
               },
               [](const std::string& x) -> caf::expected<data> {
@@ -414,7 +393,7 @@ caf::expected<expression> parse_search_id(const data& yaml) {
       auto make_predicate_expr = [&](const data& value) -> expression {
         // Convert strings to case-insensitive patterns.
         if (auto str = caf::get_if<std::string>(&value))
-          if (auto pat = make_pattern(*str))
+          if (auto pat = transform_sigma_string(*str))
             return predicate{extractor, op, data{std::move(*pat)}};
         // The modifier 'base64offset' is unique in that it creates
         // multiple values represented as list. If followed by 'contains', then
