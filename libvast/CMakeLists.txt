@@ -221,6 +221,7 @@ dependency_summary("OpenSSL" OpenSSL::SSL "Dependencies")
 # Link against yaml-cpp.
 find_package(yaml-cpp 0.6.2 REQUIRED)
 target_link_libraries(libvast PRIVATE yaml-cpp)
+target_link_libraries(libvast_builtins PRIVATE yaml-cpp)
 dependency_summary("yaml-cpp" yaml-cpp "Dependencies")
 
 # Link against xxHash.
